@@ -2,6 +2,7 @@ package im.freeflow.app;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -26,6 +27,36 @@ public class MainActivity extends BridgeActivity {
     super.onCreate(savedInstanceState);
     installBackHandling();
     installDownloads();
+    // A link the app was launched with: the page is not up yet, so park it for
+    // the page to collect at boot (FlowShell.consumeLaunchUrl).
+    deliverLink(getIntent(), true);
+  }
+
+  /** singleTask: a link while the app is alive arrives here, not in onCreate. */
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    deliverLink(intent, false);
+  }
+
+  /**
+   * Hand a flow:// or App Link to the page (packages/web/src/lib/deepLink.ts):
+   * straight into the running page when it has the bridge installed, parked
+   * otherwise. The page decides what the link means; the shell only carries it.
+   */
+  private void deliverLink(Intent intent, boolean coldStart) {
+    Uri data = intent == null ? null : intent.getData();
+    if (data == null || !DeepLinks.isFlowLink(data.toString())) return;
+    String url = data.toString();
+    WebView webView = getBridge() == null ? null : getBridge().getWebView();
+    if (coldStart || webView == null) {
+      FlowShellPlugin.setPendingUrl(url);
+      return;
+    }
+    webView.evaluateJavascript(DeepLinks.openUrlJs(url), result -> {
+      if (!"true".equals(result)) FlowShellPlugin.setPendingUrl(url);
+    });
   }
 
   /**

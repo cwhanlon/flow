@@ -160,6 +160,24 @@ export const config = {
   get googleEnabled(): boolean {
     return !!process.env.GOOGLE_CLIENT_ID;
   },
+  // ---- Android App Links (docs/design/ANDROID.md phase 2) ------------
+  /** Package the served assetlinks.json blesses. */
+  get androidPackage(): string {
+    return process.env.FLOW_ANDROID_PACKAGE ?? 'im.freeflow.app';
+  },
+  /**
+   * SHA-256 fingerprints of the Android app's signing certificate(s),
+   * colon-separated hex as `keytool -printcert` prints them, comma-separated
+   * for several (a debug and a release key). Empty (the default) serves no
+   * assetlinks.json at all, which Android reads as "this host has no app
+   * links" — right for every deployment that has not shipped an app.
+   */
+  get androidCertFingerprints(): readonly string[] {
+    return (process.env.FLOW_ANDROID_CERT_SHA256 ?? '')
+      .split(',')
+      .map((f) => f.trim().toUpperCase())
+      .filter(Boolean);
+  },
   /**
    * Phase 16 §7 `hd` hardening: require the setter's Google account to be a
    * Workspace account on the domain before they can open a workspace to it.

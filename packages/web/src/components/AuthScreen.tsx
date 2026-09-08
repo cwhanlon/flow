@@ -11,6 +11,7 @@ import { getApiBase } from '../lib/apiBase';
 import { displayServer } from '../lib/serverPicker';
 import { loadGoogleIdentity, publicConfig } from '../lib/google';
 import { MAC_DOWNLOAD_URL } from './OpenInApp';
+import ShellGoogleButton from './ShellGoogleButton';
 
 type Mode =
   | 'signin'
@@ -429,7 +430,7 @@ export default function AuthScreen({
           {isRegister ? 'Send me a link' : 'Sign In'}
         </button>
         {isRegister ? (
-          <GoogleButton onSignedIn={onSignedIn} showDivider />
+          onChangeServer ? <ShellGoogleButton showDivider /> : <GoogleButton onSignedIn={onSignedIn} showDivider />
         ) : (
           <>
             <div className="my-3 flex items-center gap-2 text-xs text-faint">
@@ -437,7 +438,11 @@ export default function AuthScreen({
               or
               <span className="h-px flex-1 bg-hairline2" />
             </div>
-            <GoogleButton onSignedIn={onSignedIn} showDivider={false} />
+            {onChangeServer ? (
+              <ShellGoogleButton showDivider={false} />
+            ) : (
+              <GoogleButton onSignedIn={onSignedIn} showDivider={false} />
+            )}
             <button
               type="button"
               data-testid="auth-signin-link-btn"

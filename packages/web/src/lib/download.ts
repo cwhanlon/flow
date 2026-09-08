@@ -8,30 +8,13 @@
 // them to the device's Downloads; this module hands over to it when it is
 // there and falls back to the anchor when it is not.
 import { blobUrl } from './api';
+import { flowShellPlugin, type FlowShellPlugin } from './flowShell';
 import { isPackagedShell } from './shell';
 
-interface FlowShellPlugin {
-  saveFile(options: { name: string; mimeType: string; data: string }): Promise<{ uri?: string }>;
-}
-
-interface CapacitorRuntime {
-  Plugins?: { FlowShell?: Partial<FlowShellPlugin> };
-  registerPlugin?: (name: string) => Partial<FlowShellPlugin>;
-}
-
-/** The native side, when this page is inside the Android shell. */
-export function shellPlugin(): FlowShellPlugin | null {
-  const cap = (globalThis as { Capacitor?: CapacitorRuntime }).Capacitor;
-  if (!cap) return null;
-  let p = cap.Plugins?.FlowShell;
-  if (!p && typeof cap.registerPlugin === 'function') {
-    try {
-      p = cap.registerPlugin('FlowShell');
-    } catch {
-      return null;
-    }
-  }
-  return p && typeof p.saveFile === 'function' ? (p as FlowShellPlugin) : null;
+/** The native side, when this page is inside the Android shell and it can save. */
+export function shellPlugin(): Pick<FlowShellPlugin, 'saveFile'> | null {
+  const p = flowShellPlugin();
+  return p && typeof p.saveFile === 'function' ? (p as Pick<FlowShellPlugin, 'saveFile'>) : null;
 }
 
 /** Standard base64 of the blob's bytes — the plugin boundary is JSON, so this
