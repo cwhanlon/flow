@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChannelFileDTO, ChannelFileSort } from '@flow/shared';
 import { blobUrl, fileStreamUrl } from '../lib/api';
+import { downloadFile } from '../lib/download';
 import { bytesLabel } from '../lib/format';
 import { isImageFile, isVideoFile } from '../lib/fileKind';
 import { useChannelFiles, useChannels } from '../hooks';
@@ -183,13 +184,7 @@ export function FilesList({
 
 /** Fetch + download the original bytes under its real filename. */
 function useDownload(file: ChannelFileDTO): () => Promise<void> {
-  return async () => {
-    const url = await blobUrl(`/v1/files/${file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-  };
+  return () => downloadFile(`/v1/files/${file.id}`, file.name, file.mimeType);
 }
 
 function FileRow({ file, onOpen }: { file: ChannelFileDTO; onOpen: () => void }) {

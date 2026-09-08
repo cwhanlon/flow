@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { renderBlocks } from '../lib/format';
 import { unwrap } from './FeaturesModal';
+import { useBackToClose } from '../lib/useBackToClose';
 
 /** The topic every client opens on — the server always ships it (docs/help). */
 const HOME = 'home';
@@ -126,6 +127,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
+  useBackToClose(onClose); // the packaged app's Escape
 
   return (
     <HelpViewer

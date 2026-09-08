@@ -18,6 +18,7 @@ import { applyMessageEvent, removeMessageFromCache } from '../lib/messageCache';
 import { applyChannelEmoji, applyHuddle, applyIndicator } from '../lib/channelCache';
 import { api, getToken } from '../lib/api';
 import { apiUrl } from '../lib/apiBase';
+import { backAction, isPackagedShell, registerBackHandler } from '../lib/shell';
 import { SocketClient, type SocketStatus } from '../lib/ws';
 import { plainBody } from '../lib/format';
 import { ACTIVITY_VIEW_ID, ADMIN_VIEW_ID, DIRECTORY_VIEW_ID, SCHEDULED_VIEW_ID, LiveContext, MobileNavContext, typingKey, useAuth, useSelection } from '../state';
@@ -496,13 +497,42 @@ export default function Main() {
     [isMobile, drawerOpen],
   );
 
+  // Hardware back in the packaged app (ANDROID.md phase 1): thread → side
+  // panel → drawer, and only then the OS. Registered for as long as the main
+  // pane is mounted; the activity asks the page before backgrounding the app.
+  useEffect(() => {
+    if (!isPackagedShell()) return;
+    return registerBackHandler(() => {
+      const cur = selRef.current;
+      const action = backAction({
+        threadOpen: cur.threadRootId !== null,
+        panelOpen: cur.artifactId !== null || cur.filesOpen,
+        isMobile,
+        drawerOpen,
+      });
+      switch (action) {
+        case 'close-thread':
+          cur.openThread(null);
+          return true;
+        case 'close-panel':
+          cur.closeSidePanel();
+          return true;
+        case 'open-drawer':
+          setDrawerOpen(true);
+          return true;
+        case 'leave':
+          return false;
+      }
+    });
+  }, [isMobile, drawerOpen]);
+
   return (
     <LiveContext.Provider value={live}>
      <MobileNavContext.Provider value={mobileNav}>
       <HuddleProvider>
       <HuddleWiring bridge={huddleBridge} />
       <div className="flex h-full flex-col bg-base text-ink">
-        <OpenInAppBanner />
+        {!isPackagedShell() && <OpenInAppBanner />}
         <HuddleMiniBar />
         <HuddleGrid />
         <IncomingHuddle />

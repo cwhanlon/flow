@@ -26,6 +26,9 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: dev,
     webContentsDebuggingEnabled: dev,
+    // targetSdk 35+ is edge-to-edge; let Capacitor pad the WebView under the
+    // system bars rather than drawing the composer beneath the nav bar.
+    adjustMarginsForEdgeToEdge: 'auto',
   },
 };
 

@@ -37,8 +37,10 @@ APK — the shell serves it from `https://localhost`, so the same-origin default
 would point at the phone itself.
 
 ```sh
-# 1. web dist for the target server
-VITE_API_BASE=https://app.freeflow.im pnpm --filter @flow/web build
+# 1. web dist for the shell. VITE_FLOW_SHELL turns on the app-only behaviour
+#    (server picker, hardware back, no "open the desktop app" banner);
+#    VITE_API_BASE is the server the first-run picker is prefilled with.
+VITE_FLOW_SHELL=android VITE_API_BASE=https://app.freeflow.im pnpm --filter @flow/web build
 
 # 2. sync + assemble
 pnpm --filter @flow/android apk:debug
@@ -58,12 +60,42 @@ A release-shaped WebView refuses cleartext and mixed content, so a dev build
 against e.g. `http://192.168.86.20:8787` needs the relaxed config:
 
 ```sh
-VITE_API_BASE=http://192.168.86.20:8787 pnpm --filter @flow/web build
+VITE_FLOW_SHELL=android VITE_API_BASE=http://192.168.86.20:8787 pnpm --filter @flow/web build
 pnpm --filter @flow/android apk:debug:dev     # FLOW_ANDROID_DEV=1
 ```
 
 `FLOW_ANDROID_DEV=1` turns on `server.cleartext`, `android.allowMixedContent`
 and remote WebView inspection (`chrome://inspect`). Dev builds only.
+
+## What the shell does (phase 1)
+
+- **Server picker** on first run — prefilled with the build's default, editable,
+  checked against `/v1/config` before it is kept; "Change" on the sign-in
+  screen reopens it. The choice persists in the app's storage, so the server
+  baked into the build is only a default.
+- **Hardware back**: thread → side panel → drawer, then the app goes to the
+  background (never exits). `MainActivity` asks the page (`window.__flowBack`)
+  and only backgrounds when the page has nothing to close. Overlays close on
+  BACK the way they close on Escape (`useBackToClose`): the shared `Modal`,
+  the help viewer, the lightbox. A bespoke overlay that handles its own
+  Escape should call the same hook.
+- **Keyboard**: `adjustResize`, so the composer rises with the IME.
+- **Downloads**: http(s) links go to Downloads/ via DownloadManager with a
+  notification. Files the web client fetches with its own auth (`/v1/files`,
+  `blob:` URLs in the page) go through the shell's one plugin,
+  `FlowShell.saveFile` — MediaStore Downloads on Android 10+, the app's own
+  external Downloads folder on 7–9 (no storage permission either way). The
+  page calls it via `lib/download.ts` and falls back to `<a download>` in a
+  browser.
+- **Reconnect**: the WebSocket reconnects the moment the OS reports the network
+  back, on top of the existing watchdog.
+- **Status bar** in the workspace purple (static; per-workspace tint needs a
+  plugin call the web client does not make yet).
+- **File chooser**: Capacitor's WebView handles `<input type=file>` with the
+  system picker; `CAMERA` is declared so `capture` can offer the camera.
+
+Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
+side's `shell.test.ts` / `serverPicker.test.ts` / `ws.test.ts`.
 
 ## CI: `.github/workflows/android.yml`
 

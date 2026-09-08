@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ArtifactDTO, FileDTO } from '@flow/shared';
 import { ApiError, api, blobUrl, fileStreamUrl, fileText, mintAppToken } from '../lib/api';
+import { downloadFile } from '../lib/download';
 import { bytesLabel } from '../lib/format';
 import { isHtmlFile, isImageFile, isTextFile, isVideoFile } from '../lib/fileKind';
 import { useSelection } from '../state';
@@ -396,11 +397,7 @@ function ArtifactToolbar({ artifact, onRenamed }: { artifact: ArtifactDTO; onRen
   };
   const download = async () => {
     if (!artifact.file) return;
-    const url = await blobUrl(`/v1/files/${artifact.file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = artifact.file.name;
-    a.click();
+    await downloadFile(`/v1/files/${artifact.file.id}`, artifact.file.name, artifact.file.mimeType);
   };
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-hairline px-4">
@@ -572,13 +569,7 @@ function TextPane({ file }: { file: FileDTO }) {
 }
 
 function DownloadPane({ file }: { file: FileDTO }) {
-  const download = async () => {
-    const url = await blobUrl(`/v1/files/${file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-  };
+  const download = () => downloadFile(`/v1/files/${file.id}`, file.name, file.mimeType);
   return (
     <Centered>
       <button

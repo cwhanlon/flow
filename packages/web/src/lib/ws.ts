@@ -34,8 +34,21 @@ export class SocketClient {
   private backoff = 500;
   private lastInboundAt = 0;
   private watchdog: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onVisible = () => {
     if (document.visibilityState === 'visible') this.dropIfSilent(SOCKET_WAKE_DEADLINE_MS);
+  };
+  // The OS knows before we do that the network is back (a phone leaving
+  // airplane mode, Wi-Fi returning — ANDROID.md phase 1). A reconnect timer
+  // set during the outage may still be many seconds out, and a socket that
+  // died with the network looks fine until the watchdog notices. `online`
+  // covers both: collapse the wait and start fresh, with the backoff reset.
+  // A socket that is genuinely open is left alone — the watchdog is the judge
+  // of health, not this event.
+  private readonly onOnline = () => {
+    if (this.stopped || this.ws?.readyState === WebSocket.OPEN) return;
+    this.backoff = 500;
+    this.dropAndReconnect(true);
   };
 
   constructor(
@@ -46,12 +59,17 @@ export class SocketClient {
   start(): void {
     this.stopped = false;
     document.addEventListener('visibilitychange', this.onVisible);
+    // `window` is absent under vitest's node environment; the tab-visibility
+    // hook above is enough there.
+    if (typeof window !== 'undefined') window.addEventListener('online', this.onOnline);
     this.connect();
   }
 
   stop(): void {
     this.stopped = true;
     document.removeEventListener('visibilitychange', this.onVisible);
+    if (typeof window !== 'undefined') window.removeEventListener('online', this.onOnline);
+    this.clearReconnectTimer();
     this.stopWatchdog();
     this.ws?.close();
     this.ws = null;
@@ -63,9 +81,10 @@ export class SocketClient {
     }
   }
 
-  private connect(): void {
+  private connect(status?: SocketStatus): void {
     if (this.stopped) return;
-    this.handlers.onStatus(this.backoff === 500 ? 'connecting' : 'reconnecting');
+    this.clearReconnectTimer();
+    this.handlers.onStatus(status ?? (this.backoff === 500 ? 'connecting' : 'reconnecting'));
     const ws = new WebSocket(wsUrl('/v1/ws'));
     this.ws = ws;
 
@@ -107,7 +126,13 @@ export class SocketClient {
     this.handlers.onStatus('reconnecting');
     const delay = this.backoff;
     this.backoff = Math.min(this.backoff * 2, 15_000);
-    setTimeout(() => this.connect(), delay);
+    this.clearReconnectTimer();
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   // Nothing from the server for `deadline` ms: give up on this socket and
@@ -117,11 +142,24 @@ export class SocketClient {
   private dropIfSilent(deadline: number): void {
     const ws = this.ws;
     if (!ws || !isSocketDead(this.lastInboundAt, Date.now(), deadline)) return;
-    ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
-    ws.close();
-    this.ws = null;
+    this.dropAndReconnect(false);
+  }
+
+  /** Abandon the current socket (if any) without waiting on a close handshake
+   * the peer may never answer, then reconnect — right away, or on the backoff. */
+  private dropAndReconnect(immediately: boolean): void {
+    const ws = this.ws;
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+      ws.close();
+      this.ws = null;
+    }
     this.stopWatchdog();
-    this.scheduleReconnect();
+    if (immediately) {
+      this.connect('reconnecting');
+    } else {
+      this.scheduleReconnect();
+    }
   }
 
   private startWatchdog(): void {

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ArtifactDTO, FileDTO, MessageDTO, WorkspaceMemberDTO } from '@flow/shared';
 import { api, blobUrl, fileStreamUrl, fileText } from '../lib/api';
+import { downloadFile } from '../lib/download';
 import { bytesLabel, displayTime, InlineLinkContext, renderBlocks } from '../lib/format';
 import { isTextFile, isVideoFile } from '../lib/fileKind';
 import { INTERRUPT_EMOJI, isThinkingStatus } from '../lib/agentStatus';
@@ -831,13 +832,7 @@ function useCollapsed(fileId: string): [boolean, () => void] {
 }
 
 function useDownload(file: FileDTO): () => Promise<void> {
-  return async () => {
-    const url = await blobUrl(`/v1/files/${file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-  };
+  return () => downloadFile(`/v1/files/${file.id}`, file.name, file.mimeType);
 }
 
 function CardHeader({

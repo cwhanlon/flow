@@ -9,4 +9,7 @@ declare const __BUILD__: string;
 // web build. Read in src/lib/apiBase.ts.
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
+  /** Set by the packaged app's web build (`android`); unset = a browser tab.
+   * Read in src/lib/shell.ts. */
+  readonly VITE_FLOW_SHELL?: string;
 }

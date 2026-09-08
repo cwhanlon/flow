@@ -33,6 +33,12 @@ export function publicConfig(): Promise<PublicConfigDTO> {
   return configPromise;
 }
 
+/** Forget the cached answer — the packaged app calls this when the user picks
+ * a different server (ANDROID.md phase 1), since the config belongs to it. */
+export function resetPublicConfig(): void {
+  configPromise = null;
+}
+
 let gsiPromise: Promise<GoogleIdentityApi> | null = null;
 
 /** Load the GIS client script once and resolve with `window.google`. */

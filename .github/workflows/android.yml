@@ -80,6 +80,7 @@ jobs:
       - name: Build web client for the shell
         env:
           VITE_API_BASE: ${{ env.API_BASE }}
+          VITE_FLOW_SHELL: android
         run: |
           pnpm --filter @flow/shared build
           pnpm --filter @flow/web build
@@ -88,6 +89,12 @@ jobs:
         env:
           FLOW_ANDROID_DEV: ${{ env.DEV_BUILD }}
         run: pnpm --filter @flow/android sync
+
+      # JUnit tests for the shell's own logic (back-button bridge, download
+      # policy). Pure JVM — no emulator.
+      - name: Android unit tests
+        working-directory: apps/android/android
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Assemble debug APK
         id: apk
