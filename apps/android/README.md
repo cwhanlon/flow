@@ -75,7 +75,10 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
   baked into the build is only a default.
 - **Hardware back**: thread → side panel → drawer, then the app goes to the
   background (never exits). `MainActivity` asks the page (`window.__flowBack`)
-  and only backgrounds when the page has nothing to close.
+  and only backgrounds when the page has nothing to close. Gap: modals
+  (invite, settings, …) do not register a back handler yet, so BACK over an
+  open modal backgrounds the app instead of closing it — `registerBackHandler`
+  in `lib/shell.ts` is the seam; each modal needs to opt in.
 - **Keyboard**: `adjustResize`, so the composer rises with the IME.
 - **Downloads**: http(s) links go to Downloads/ via DownloadManager with a
   notification. Gap: files the web client fetches itself (authenticated
