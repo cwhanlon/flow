@@ -7,6 +7,8 @@ import type {
   WorkspaceDTO,
 } from '@flow/shared';
 import { api } from '../lib/api';
+import { getApiBase } from '../lib/apiBase';
+import { displayServer } from '../lib/serverPicker';
 import { loadGoogleIdentity, publicConfig } from '../lib/google';
 import { MAC_DOWNLOAD_URL } from './OpenInApp';
 
@@ -113,11 +115,16 @@ export default function AuthScreen({
   resetToken,
   signinToken,
   joinWorkspace,
+  onChangeServer,
 }: {
   onSignedIn: (r: AuthResponse & { autoJoined?: WorkspaceDTO[] }) => void;
   signupToken?: string | null;
   resetToken?: string | null;
   signinToken?: string | null;
+  /** Packaged app only (ANDROID.md phase 1): reopen the server picker. Its
+   * presence also swaps the Mac download link for the server line — an app
+   * does not advertise another app. */
+  onChangeServer?: () => void;
   /** Workspace name behind a join link, when JoinScreen is wrapping us — so
    * the card says what the visitor is signing in *for* (issue #85). */
   joinWorkspace?: string | null;
@@ -465,13 +472,22 @@ export default function AuthScreen({
         )}
         {body}
       </div>
-      <a
-        data-testid="download-mac-app"
-        href={MAC_DOWNLOAD_URL}
-        className="text-sm font-semibold text-accent-soft hover:underline"
-      >
-        Download the Mac app ↓
-      </a>
+      {onChangeServer ? (
+        <p className="text-sm text-muted" data-testid="server-line">
+          Server: <span className="font-medium text-ink">{displayServer(getApiBase())}</span>{' '}
+          <button type="button" className="text-accent-soft hover:underline" onClick={onChangeServer}>
+            Change
+          </button>
+        </p>
+      ) : (
+        <a
+          data-testid="download-mac-app"
+          href={MAC_DOWNLOAD_URL}
+          className="text-sm font-semibold text-accent-soft hover:underline"
+        >
+          Download the Mac app ↓
+        </a>
+      )}
     </div>
   );
 }

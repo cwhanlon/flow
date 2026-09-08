@@ -13,6 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Status bar in the workspace purple so it reads as part of the sidebar
+             (ANDROID.md phase 1). Static for now: per-workspace themes need a
+             plugin call the web client does not make yet. -->
+        <item name="android:statusBarColor">@color/flowPurple</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 

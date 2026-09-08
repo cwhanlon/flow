@@ -152,3 +152,85 @@ describe('SocketClient watchdog', () => {
     expect(FakeWebSocket.instances.length).toBe(1);
   });
 });
+
+// Network came back (ANDROID.md phase 1): the OS `online` event collapses a
+// pending backoff and replaces a socket that died with the network. Same fake
+// socket; `window` is stubbed here because the client only listens for
+// `online` when there is one.
+describe('SocketClient online event', () => {
+  let onlineListener: (() => void) | null = null;
+  const statuses: string[] = [];
+  const live = () => FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances = [];
+    statuses.length = 0;
+    onlineListener = null;
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:8787' });
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    vi.stubGlobal('window', {
+      addEventListener: (name: string, fn: () => void) => {
+        if (name === 'online') onlineListener = fn;
+      },
+      removeEventListener: (name: string) => {
+        if (name === 'online') onlineListener = null;
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const connected = () => {
+    const client = new SocketClient('tok', { onEvent: () => {}, onStatus: (s) => statuses.push(s) });
+    client.start();
+    live().onopen?.();
+    live().deliver({ op: 'hello', sessionId: 's1' });
+    return client;
+  };
+
+  it('listens for online while started and stops listening on stop', () => {
+    const client = connected();
+    expect(onlineListener).not.toBeNull();
+    client.stop();
+    expect(onlineListener).toBeNull();
+  });
+
+  it('leaves a healthy socket alone', () => {
+    connected();
+    onlineListener?.();
+    expect(FakeWebSocket.instances.length).toBe(1);
+  });
+
+  it('collapses a pending backoff when the network returns', () => {
+    connected();
+    // Server side went away: close → reconnect scheduled on the backoff.
+    live().readyState = 3; // WebSocket.CLOSED
+    live().onclose?.();
+    expect(FakeWebSocket.instances.length).toBe(1);
+    onlineListener?.();
+    // A second socket opened right away, not after the backoff…
+    expect(FakeWebSocket.instances.length).toBe(2);
+    // …and the old timer must not fire a third one later.
+    vi.advanceTimersByTime(20_000);
+    expect(FakeWebSocket.instances.length).toBe(2);
+  });
+
+  it('replaces a socket that still reads OPEN but died with the network', () => {
+    connected();
+    const dead = live();
+    dead.readyState = 0; // WebSocket.CONNECTING — anything but OPEN
+    onlineListener?.();
+    expect(FakeWebSocket.instances.length).toBe(2);
+    expect(live()).not.toBe(dead);
+    expect(statuses.at(-1)).toBe('reconnecting');
+  });
+});

@@ -18,6 +18,9 @@ import {
 import { ADMIN_VIEW_ID, AuthContext, SelectionContext } from './state';
 import AuthScreen from './components/AuthScreen';
 import JoinScreen from './components/JoinScreen';
+import ServerPicker from './components/ServerPicker';
+import { shouldShowServerPicker } from './lib/serverPicker';
+import { installBackBridge, isPackagedShell } from './lib/shell';
 import NativeSignIn from './components/NativeSignIn';
 import WorkspaceChooser from './components/WorkspaceChooser';
 import Main from './components/Main';
@@ -69,6 +72,16 @@ export default function App() {
   const qc = useQueryClient();
   const [user, setUser] = useState<UserDTO | null>(null);
   const [booting, setBooting] = useState(true);
+  // The packaged app's server choice (ANDROID.md phase 1): shown on first run,
+  // and again from the sign-in screen's "Change". A browser tab never sees it —
+  // shouldShowServerPicker is false there.
+  const [pickingServer, setPickingServer] = useState<'first-run' | 'change' | null>(
+    () => (shouldShowServerPicker() ? 'first-run' : null),
+  );
+  // The shell's hardware-back bridge; nothing is installed in a browser tab.
+  useEffect(() => {
+    if (isPackagedShell()) installBackBridge();
+  }, []);
   const [{ signupToken, resetToken, signinToken, nativeHandoff }] = useState(consumeEmailLinkParams);
   // Active workspace survives reloads/restarts (phase 3.5 fixes).
   const [workspaceId, setWorkspaceId] = useState<string | null>(
@@ -213,6 +226,15 @@ export default function App() {
     showChannel(target);
   };
 
+  if (pickingServer) {
+    return (
+      <ServerPicker
+        onChosen={() => setPickingServer(null)}
+        onCancel={pickingServer === 'change' ? () => setPickingServer(null) : undefined}
+      />
+    );
+  }
+
   if (booting) {
     return <div className="flex h-full items-center justify-center text-faint">Loading…</div>;
   }
@@ -254,6 +276,7 @@ export default function App() {
         signupToken={signupToken}
         resetToken={resetToken}
         signinToken={signinToken}
+        onChangeServer={isPackagedShell() ? () => setPickingServer('change') : undefined}
       />
     );
   }

@@ -6,6 +6,7 @@ import { useAuth, useSelection } from '../state';
 import { useSelfRegisterDomain, useWorkspaceInvites, useWorkspaces } from '../hooks';
 import { EMPTY_SLUG_FIELD, slugEdited, slugForName } from '../lib/slugify';
 import { OpenInAppButton } from './OpenInApp';
+import { isPackagedShell } from '../lib/shell';
 import { AuthImg } from './Avatar';
 
 export default function WorkspaceChooser() {
@@ -86,7 +87,7 @@ export default function WorkspaceChooser() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 bg-base">
       <h1 className="text-2xl font-bold text-ink">Choose a Workspace</h1>
-      <OpenInAppButton />
+      {!isPackagedShell() && <OpenInAppButton />}
       {(invites.data ?? []).length > 0 && (
         <div data-testid="workspace-invitations" className="w-96 space-y-2">
           {(invites.data ?? []).map((inv) => (
