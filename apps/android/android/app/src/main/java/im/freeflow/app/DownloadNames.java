@@ -15,10 +15,11 @@ final class DownloadNames {
    */
   static String safe(String name) {
     if (name == null) return FALLBACK;
-    String s = name.replaceAll("[\\\\/\\p{Cntrl}]", "").replaceAll("\\s+", " ").trim();
-    while (s.startsWith(".")) s = s.substring(1);
-    if (s.length() > MAX_LENGTH) s = s.substring(0, MAX_LENGTH);
-    s = s.trim();
+    String s = name.replaceAll("[\\\\/\\p{Cntrl}]", "").replaceAll("\\s+", " ");
+    // Leading dots and blanks go together, repeatedly: " . . " must not
+    // survive as "." — the loop-once version did exactly that.
+    s = s.replaceAll("^[.\\s]+", "").trim();
+    if (s.length() > MAX_LENGTH) s = s.substring(0, MAX_LENGTH).trim();
     return s.isEmpty() ? FALLBACK : s;
   }
 }
