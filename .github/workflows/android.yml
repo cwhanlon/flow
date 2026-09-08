@@ -102,9 +102,11 @@ jobs:
         run: |
           count=$(git rev-list --count HEAD)
           sha=$(git rev-parse --short HEAD)
+          host=$(printf '%s' "$API_BASE" | sed -E 's#^[a-z]+://##; s#[/:].*$##')
           ./gradlew --no-daemon assembleDebug \
             -PflowVersionCode="$count" \
-            -PflowVersionName="0.1.0-dev.${count}+${sha}"
+            -PflowVersionName="0.1.0-dev.${count}+${sha}" \
+            -PflowAppLinkHost="${host:-app.freeflow.im}"
           cp app/build/outputs/apk/debug/app-debug.apk flow-android-debug.apk
           echo "version=0.1.0-dev.${count}+${sha}" >> "$GITHUB_OUTPUT"
 

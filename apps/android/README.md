@@ -94,8 +94,30 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
 - **File chooser**: Capacitor's WebView handles `<input type=file>` with the
   system picker; `CAMERA` is declared so `capture` can offer the camera.
 
+## Links that open the app (phase 2)
+
+- `flow://signin?code=…` — the web-to-app handoff every native client uses;
+  the page exchanges the code for a session. `flow://invite/<token>` and
+  `flow://join/<slug>/<token>` land on the same invite/join paths the web
+  client has for those URLs.
+- **Verified App Links** for `https://<server>/join/…` and `/invite/…`. The
+  host is baked in at build time (`-PflowAppLinkHost`, CI derives it from
+  `ANDROID_API_BASE`), and the server has to publish
+  `/.well-known/assetlinks.json` with this build's signing fingerprint —
+  `FLOW_ANDROID_CERT_SHA256` (see `docs/ops/DEPLOYMENT.md`). The debug
+  keystore's fingerprint: `keytool -list -v -keystore android/app/debug.keystore
+  -storepass android | grep SHA256`. Without it the scheme links still work;
+  the https ones open in the browser.
+- **Google sign-in** cannot run in a WebView, so the app's button opens the
+  server's `/?native=google` page in a Chrome Custom Tab; that page mints a
+  code and comes back as `flow://signin`. Needs `GOOGLE_CLIENT_ID` on the
+  server, like everywhere else.
+- Delivery: a link the app is launched with is parked in the plugin and
+  collected once at boot (`FlowShell.consumeLaunchUrl`); one arriving while
+  the page is up is pushed through `window.__flowOpenUrl` (`MainActivity.onNewIntent`).
+
 Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
-side's `shell.test.ts` / `serverPicker.test.ts` / `ws.test.ts`.
+side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` / `ws.test.ts`.
 
 ## CI: `.github/workflows/android.yml`
 

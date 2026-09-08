@@ -1,6 +1,8 @@
 package im.freeflow.app;
 
+import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
+import android.content.Intent;
 import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
@@ -9,6 +11,7 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.widget.Toast;
+import androidx.browser.customtabs.CustomTabsIntent;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -27,6 +30,48 @@ import java.io.OutputStream;
  */
 @CapacitorPlugin(name = "FlowShell")
 public class FlowShellPlugin extends Plugin {
+
+  /**
+   * A link the app was launched (or resumed) with before the page could take
+   * it — MainActivity parks it here, the page collects it once at boot.
+   */
+  private static volatile String pendingUrl;
+
+  static void setPendingUrl(String url) {
+    pendingUrl = url;
+  }
+
+  @PluginMethod
+  public void consumeLaunchUrl(PluginCall call) {
+    JSObject ret = new JSObject();
+    String url = pendingUrl;
+    pendingUrl = null;
+    if (url == null) ret.put("url", JSObject.NULL);
+    else ret.put("url", url);
+    call.resolve(ret);
+  }
+
+  /**
+   * The system browser, as a Chrome Custom Tab when one is available: what the
+   * app uses for Google sign-in, which will not run inside a WebView. Only
+   * http(s) — the page never gets to launch arbitrary intents.
+   */
+  @PluginMethod
+  public void openExternal(PluginCall call) {
+    String url = call.getString("url");
+    if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) {
+      call.reject("url must be http(s)");
+      return;
+    }
+    Uri uri = Uri.parse(url);
+    try {
+      new CustomTabsIntent.Builder().build().launchUrl(getContext(), uri);
+    } catch (ActivityNotFoundException e) {
+      Intent view = new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      getContext().startActivity(view);
+    }
+    call.resolve();
+  }
 
   @PluginMethod
   public void saveFile(PluginCall call) {

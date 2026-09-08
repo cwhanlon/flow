@@ -166,6 +166,28 @@ export function registerRoutes(app: FastifyInstance): void {
     return help.getPage(slug);
   });
 
+  // Android App Links (docs/design/ANDROID.md phase 2). Before Android lets
+  // the app claim https://<this host>/join/… it fetches this file and matches
+  // the package name and signing certificate. Config-driven so a self-host can
+  // bless its own build; without fingerprints it is a JSON 404 — deliberately
+  // not the SPA shell, which the verifier would otherwise read as a statement.
+  app.get('/.well-known/assetlinks.json', async (_req, reply) => {
+    const fingerprints = config.androidCertFingerprints;
+    if (fingerprints.length === 0) {
+      return reply.status(404).send({ error: { code: 'not_found', message: 'not found' } });
+    }
+    return reply.header('cache-control', 'public, max-age=3600').send([
+      {
+        relation: ['delegate_permission/common.handle_all_urls'],
+        target: {
+          namespace: 'android_app',
+          package_name: config.androidPackage,
+          sha256_cert_fingerprints: [...fingerprints],
+        },
+      },
+    ]);
+  });
+
   app.get('/v1/config', async () => ({
     google: config.googleEnabled,
     googleClientId: config.googleClientId ?? null,

@@ -21,6 +21,8 @@ import JoinScreen from './components/JoinScreen';
 import ServerPicker from './components/ServerPicker';
 import { shouldShowServerPicker } from './lib/serverPicker';
 import { installBackBridge, isPackagedShell } from './lib/shell';
+import { exchangeSigninCode, installOpenUrlBridge, parseDeepLink } from './lib/deepLink';
+import { consumeLaunchUrl } from './lib/flowShell';
 import NativeSignIn from './components/NativeSignIn';
 import WorkspaceChooser from './components/WorkspaceChooser';
 import Main from './components/Main';
@@ -82,6 +84,9 @@ export default function App() {
   useEffect(() => {
     if (isPackagedShell()) installBackBridge();
   }, []);
+  // Bumped whenever a deep link stashes an invite, so the accept effect below
+  // runs again even when the user object has not changed.
+  const [linkNonce, setLinkNonce] = useState(0);
   const [{ signupToken, resetToken, signinToken, nativeHandoff }] = useState(consumeEmailLinkParams);
   // Active workspace survives reloads/restarts (phase 3.5 fixes).
   const [workspaceId, setWorkspaceId] = useState<string | null>(
@@ -149,7 +154,7 @@ export default function App() {
         localStorage.removeItem(PENDING_INVITE_KEY);
       }
     })();
-  }, [user, qc]);
+  }, [user, qc, linkNonce]);
 
   // A stashed join link (issue #85) takes over the whole screen until it's
   // resolved — see JoinScreen. Read once at boot so the token is picked up
@@ -185,6 +190,32 @@ export default function App() {
     const t = setTimeout(() => setNotice(null), 8000);
     return () => clearTimeout(t);
   }, [notice]);
+
+  // Links that open the app (ANDROID.md phase 2): the web-to-app sign-in
+  // handoff, invites, join links — each folded into the path the web client
+  // already has for the same thing arriving as a URL. A link the app was
+  // launched with is collected once at boot; one that arrives while the page
+  // is up comes through the bridge the shell calls.
+  const handleDeepLink = useCallback((url: string) => {
+    const link = parseDeepLink(url);
+    if (!link) return;
+    if (link.kind === 'signin') {
+      void exchangeSigninCode(link.code)
+        .then((resp) => signIn(resp))
+        .catch((err) => console.warn(`sign-in link failed: ${(err as Error).message}`));
+    } else if (link.kind === 'invite') {
+      localStorage.setItem(PENDING_INVITE_KEY, link.token);
+      setLinkNonce((n) => n + 1);
+    } else {
+      stashJoinToken(link.token);
+      setPendingJoin(link.token);
+    }
+  }, [signIn]);
+  useEffect(() => {
+    if (!isPackagedShell()) return;
+    installOpenUrlBridge(handleDeepLink);
+    void consumeLaunchUrl().then((url) => { if (url) handleDeepLink(url); });
+  }, [handleDeepLink]);
 
   const signOut = useCallback(() => {
     void api('POST', '/v1/auth/logout').catch(() => {});
