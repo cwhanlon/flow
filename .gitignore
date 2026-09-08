@@ -10,6 +10,8 @@ dist/
 .env.local
 # local dev sealed data key lives outside git
 packages/server/.keys
+# throwaway QA stacks (pnpm qa:up) — state, logs, per-run scratch dirs
+/.qa/
 # swift / xcode
 .build/
 DerivedData/
@@ -27,3 +29,5 @@ agent.json
 packages/web/public/flow-agent-member-SKILL.md
 # generated at predev/prebuild from repo-root FEATURES.md
 packages/web/public/FEATURES.md
+# generated at predev/prebuild from the mermaid package (3.5 MB browser bundle)
+packages/web/public/mermaid/mermaid.min.js

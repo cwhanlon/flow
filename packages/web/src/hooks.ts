@@ -12,11 +12,16 @@ import type {
   AppDTO,
   ArtifactDTO,
   ChannelDTO,
+  ChannelFilePage,
+  ChannelFileSort,
   FileDTO,
   MessageDTO,
   MessagePage,
   NotificationPage,
   OAuthIdentityDTO,
+  PendingWorkspaceInviteDTO,
+  Recurrence,
+  ScheduledMessageDTO,
   UserDTO,
   WorkspaceDTO,
   WorkspaceEmojiDTO,
@@ -37,6 +42,19 @@ export function useWorkspaces() {
     queryKey: ['workspaces'],
     queryFn: () => api<{ workspaces: WorkspaceDTO[] }>('GET', '/v1/me/workspaces'),
     select: (d) => d.workspaces,
+  });
+}
+
+/**
+ * Workspace invitations addressed to me (#359) — what the Accept / Decline
+ * cards on the workspace chooser are drawn from, and what puts the dot on the
+ * rail's "+". Live via the `workspace.invited` event.
+ */
+export function useWorkspaceInvites() {
+  return useQuery({
+    queryKey: ['workspaceInvites'],
+    queryFn: () => api<{ invites: PendingWorkspaceInviteDTO[] }>('GET', '/v1/me/workspace-invites'),
+    select: (d) => d.invites,
   });
 }
 
@@ -126,6 +144,21 @@ export function useArtifacts(workspaceId: string | null) {
   });
 }
 
+/**
+ * Every mini app I'm allowed to see in this workspace (#394) — apps in public
+ * channels whether or not I've joined them, plus apps in private channels I'm
+ * in. Powers the sidebar's "Apps" section; the host channel is resolved against
+ * the channel list, which already carries public channels I'm not a member of.
+ */
+export function useAppArtifacts(workspaceId: string | null) {
+  return useQuery({
+    queryKey: ['app-artifacts', workspaceId],
+    queryFn: () => api<{ artifacts: ArtifactDTO[] }>('GET', `/v1/workspaces/${workspaceId}/app-artifacts`),
+    select: (d) => d.artifacts,
+    enabled: workspaceId !== null,
+  });
+}
+
 /** Slack-compat apps for a workspace (phase4.md §1). Admin-only endpoint. */
 export function useApps(workspaceId: string | null) {
   return useQuery({
@@ -177,6 +210,25 @@ export function useMessages(channelId: string | null) {
     initialPageParam: '',
     getNextPageParam: (last) =>
       last.hasMore && last.messages.length > 0 ? last.messages[last.messages.length - 1]!.id : undefined,
+    enabled: channelId !== null,
+  });
+}
+
+/**
+ * Channel Files panel (#347): every file shared in the channel, one sort order
+ * at a time. Keyed by sort so switching links swaps to a cached list rather
+ * than refetching, and paged with the server's opaque cursor.
+ */
+export function useChannelFiles(channelId: string | null, sort: ChannelFileSort) {
+  return useInfiniteQuery({
+    queryKey: ['channelFiles', channelId, sort],
+    queryFn: ({ pageParam }) =>
+      api<ChannelFilePage>(
+        'GET',
+        `/v1/channels/${channelId}/files?sort=${sort}&limit=30${pageParam ? `&before=${encodeURIComponent(pageParam)}` : ''}`,
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: channelId !== null,
   });
 }
@@ -266,6 +318,7 @@ export function useSendMessage(channelId: string) {
     pinnedAt: null,
     pinnedBy: null,
     systemKind: null,
+    scheduled: false,
     replyCount: 0,
     lastReplyAt: null,
     replyParticipantUserIds: [],
@@ -360,7 +413,12 @@ export function useMarkRead() {
         lastReadMsgId: input.lastReadMsgId,
         ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['channels'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['channels'] });
+      // Reading a channel drops that workspace's rail badge (#345) — the total
+      // lives on the workspace list, so it has to be refetched too.
+      void qc.invalidateQueries({ queryKey: ['workspaces'] });
+    },
   });
 }
 
@@ -369,4 +427,62 @@ export function useMe() {
     queryKey: ['me'],
     queryFn: () => api<UserDTO>('GET', '/v1/me'),
   });
+}
+
+/**
+ * Scheduled messages (#420) — the Scheduled panel's list. The server already
+ * scopes it (your rows plus rows destined for channels you're in), so `mine`
+ * is only the "Owned by me" narrowing, and it rides the query key so toggling
+ * the filter swaps to a cached list instead of refetching.
+ */
+export function useScheduledMessages(workspaceId: string | null, mine: boolean) {
+  return useQuery({
+    queryKey: ['scheduledMessages', workspaceId, mine],
+    queryFn: () =>
+      api<{ scheduledMessages: ScheduledMessageDTO[] }>(
+        'GET',
+        `/v1/scheduled-messages?workspaceId=${workspaceId!}${mine ? '&mine=true' : ''}`,
+      ),
+    select: (d) => d.scheduledMessages,
+    enabled: workspaceId !== null,
+  });
+}
+
+export interface ScheduledMessageInput {
+  channelId: string;
+  body: string;
+  recurrence: Recurrence;
+  timezone?: string;
+}
+
+/** Create, edit, delete, pause/resume and run-now, all invalidating the one
+ * list query — every row action updates the panel without a reload. */
+export function useScheduledMessageActions() {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: ['scheduledMessages'] });
+
+  const create = useMutation({
+    mutationFn: (input: ScheduledMessageInput) =>
+      api<ScheduledMessageDTO>('POST', '/v1/scheduled-messages', input),
+    onSuccess: refresh,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, ...patch }: Partial<ScheduledMessageInput> & { id: string; enabled?: boolean }) =>
+      api<ScheduledMessageDTO>('PATCH', `/v1/scheduled-messages/${id}`, patch),
+    onSuccess: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api('DELETE', `/v1/scheduled-messages/${id}`),
+    onSuccess: refresh,
+  });
+  const setEnabled = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api<ScheduledMessageDTO>('POST', `/v1/scheduled-messages/${id}/${enabled ? 'resume' : 'pause'}`),
+    onSuccess: refresh,
+  });
+  const runNow = useMutation({
+    mutationFn: (id: string) => api<ScheduledMessageDTO>('POST', `/v1/scheduled-messages/${id}/run`),
+    onSuccess: refresh,
+  });
+  return { create, update, remove, setEnabled, runNow };
 }

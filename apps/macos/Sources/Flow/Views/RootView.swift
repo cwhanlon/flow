@@ -30,6 +30,10 @@ struct RootView: View {
             }
         }
         .environmentObject(win)
+        // Confetti overlay for 🎉 reactions (#524). Per window, so a burst
+        // lands in the window whose pill was reacted to and nowhere else.
+        .confettiHost()
+        .debugAutoLogin(app)
         // Banner taps and accepted invites navigate the key window — tell the
         // shared state which one that is.
         .background(WindowKeyObserver { app.noteKeyWindow(win) })
@@ -46,6 +50,44 @@ struct RootView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(app.errorMessage ?? "")
+        }
+        // Voice huddle (Phase 1): unmuting with no OS mic permission. Its own
+        // alert (not the generic one above) because this is the one place an
+        // action button — jumping straight to the Microphone privacy pane —
+        // actually helps.
+        .alert(
+            "Microphone Access Needed",
+            isPresented: $app.micPermissionBlocked
+        ) {
+            Button("Open Settings") { app.openMicrophoneSettings() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Flow needs microphone access to talk in a huddle. Enable it in System Settings → Privacy & Security → Microphone.")
+        }
+        // Same shape for the camera (#435) — a separate OS grant, a separate
+        // pane, and the same reason for its own alert: "Open Settings" is the
+        // only useful thing to offer.
+        .alert(
+            "Camera Access Needed",
+            isPresented: $app.cameraPermissionBlocked
+        ) {
+            Button("Open Settings") { app.openCameraSettings() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Flow needs camera access to turn on video in a huddle. Enable it in System Settings → Privacy & Security → Camera.")
+        }
+        // Screen Recording refused, or never granted. ScreenCaptureKit answers
+        // an ungranted app with an empty source list rather than an error, so
+        // this covers both "denied" and "never asked" — and both are fixed in
+        // the same pane.
+        .alert(
+            "Screen Recording Access Needed",
+            isPresented: $app.screenPermissionBlocked
+        ) {
+            Button("Open Settings") { app.openScreenRecordingSettings() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Flow needs Screen Recording access to share a window or screen. Enable it in System Settings → Privacy & Security → Screen Recording, then reopen Flow.")
         }
     }
 }
@@ -84,7 +126,12 @@ private struct WindowKeyObserver: NSViewRepresentable {
             observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
             ) { [weak self] _ in
-                self?.onKey?()
+                // Delivery is pinned to the main queue above, but
+                // NotificationCenter's callback is `@Sendable`; make that
+                // runtime guarantee explicit to Swift 6's actor checker.
+                MainActor.assumeIsolated {
+                    self?.onKey?()
+                }
             }
         }
     }

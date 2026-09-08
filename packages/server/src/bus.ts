@@ -43,8 +43,40 @@ export function subjectArtifact(workspaceId: string, channelId: string): string 
 export function subjectIndicator(workspaceId: string, channelId: string): string {
   return `ws.${workspaceId}.chan.${channelId}.indicator`;
 }
+/** Per-channel emoji stream (#396). Same shape and reasoning as
+ * subjectIndicator — the emoji is a channel-scoped property, so routing it
+ * per channel lets visible() keep a private channel's decoration private. */
+export function subjectChannelEmoji(workspaceId: string, channelId: string): string {
+  return `ws.${workspaceId}.chan.${channelId}.emoji`;
+}
+/** Per-channel voice-huddle stream (Phase 1). Same shape and reasoning as
+ * subjectIndicator: under the workspace wildcard so the gateway forwards it,
+ * not a `.meta` subject, and channel-scoped so visible() handles privacy. */
+export function subjectHuddle(workspaceId: string, channelId: string): string {
+  return `ws.${workspaceId}.chan.${channelId}.huddle`;
+}
+/** Every huddle event, all workspaces — the replica roster-sync subscription
+ * (phase 18 M2): huddle.updated carries the full roster, so replicas keep
+ * their caches converged by applying each other's events. */
+export function subjectHuddleAll(): string {
+  return `ws.*.chan.*.huddle`;
+}
 export function subjectWorkspaceAll(workspaceId: string): string {
   return `ws.${workspaceId}.>`;
+}
+/** Replica presence heartbeat (phase 18 M2) — server-to-server, never
+ * forwarded to clients (outside the `ws.*` wildcard the gateway subscribes). */
+export function subjectPresenceSync(replicaId: string): string {
+  return `presence.sync.${replicaId}`;
+}
+export function subjectPresenceSyncAll(): string {
+  return `presence.sync.*`;
+}
+/** Per-app Socket Mode envelope routing (phase 18 M3) — the replica holding
+ * the app's socket subscribes (queue group, so exactly one responder when the
+ * app holds sockets on several replicas) and replies with the ack result. */
+export function subjectAppSocketMode(appId: string): string {
+  return `app.${appId}.socketmode`;
 }
 /** Per-user meta subject: tells a user's live sockets about workspace joins. */
 export function subjectUserMeta(userId: string): string {
@@ -70,9 +102,21 @@ export function publishEvent(subject: string, event: Event): void {
   }
 }
 
-export function subscribeBus(subject: string): Subscription {
+export function subscribeBus(subject: string, opts?: { queue?: string }): Subscription {
   if (!nc) throw new Error('bus not connected');
-  return nc.subscribe(subject);
+  return nc.subscribe(subject, opts?.queue ? { queue: opts.queue } : undefined);
+}
+
+/**
+ * Request/reply (phase 18 M3, Socket Mode routing). Returns the parsed JSON
+ * reply, or null when the bus is not connected (unit tests, degraded boot) —
+ * the caller treats null like "nobody answered". NATS errors (no responders,
+ * timeout) propagate; the caller maps them.
+ */
+export async function requestBus(subject: string, payload: unknown, timeoutMs: number): Promise<unknown | null> {
+  if (!nc) return null;
+  const m = await nc.request(subject, JSON.stringify(payload), { timeout: timeoutMs });
+  return JSON.parse(new TextDecoder().decode(m.data)) as unknown;
 }
 
 export async function closeBus(): Promise<void> {

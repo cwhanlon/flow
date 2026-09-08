@@ -43,6 +43,13 @@ struct FlowApp: App {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesCommand(updater: updater)
             }
+            // Find lives at the foot of the Edit menu, where every Mac app
+            // keeps it — and owning the ⌘F key equivalent there is what stops
+            // AppKit offering its own find bar on the composer (#518).
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                ChatFindCommands()
+            }
             // `.sidebar` anchors the top of the View menu — where Mac apps
             // keep zoom.
             CommandGroup(after: .sidebar) {
@@ -107,12 +114,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Show the banner even when Flow is frontmost — SyncEngine only posts one
     // when the user isn't already looking at that channel, so it's never noise.
+    // The sound follows the request: `Banners.show` leaves the content's sound
+    // nil when the `sound` pref is off (#464).
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler(
+            Banners.presentationOptions(hasSound: notification.request.content.sound != nil)
+        )
     }
 
     // Banner tapped: bring the app forward and jump to the message.

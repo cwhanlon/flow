@@ -21,16 +21,15 @@ struct ComposerView: View {
     @State private var suppressedToken: String?
     @State private var dropTargeted = false
     @State private var missingMentions: [MentionMiss] = []
+    /// Open schedule sheet (#424) — set by the clock below, carrying whatever
+    /// is typed and this conversation as the destination.
+    @State private var scheduling: ScheduleEditorTarget?
     @StateObject private var members = DBObserved<[MemberInfo]>(initial: [])
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !missingMentions.isEmpty {
                 mentionInviteBanner
-            }
-
-            if !attachments.isEmpty || uploading > 0 {
-                attachmentBar
             }
 
             HStack(alignment: .bottom, spacing: 8) {
@@ -83,6 +82,20 @@ struct ComposerView: View {
                 .help("Insert emoji")
                 .accessibilityIdentifier(threadRootId == nil ? "composer.emoji" : "thread.composer.emoji")
 
+                // Schedule instead of send (#424): same message, posted later.
+                // Only on a channel's main composer — a scheduled message is a
+                // top-level post, not a thread reply.
+                if threadRootId == nil {
+                    Button {
+                        scheduling = .creating(body: text, channelId: channelId)
+                    } label: {
+                        Image(systemName: "clock")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Schedule this message")
+                    .accessibilityIdentifier("composer.schedule")
+                }
+
                 Button(action: send) {
                     Image(systemName: "paperplane.fill")
                         .flowFont(size: 12)
@@ -96,6 +109,12 @@ struct ComposerView: View {
                 .help("Send message")
                 .accessibilityIdentifier(threadRootId == nil ? "composer.send" : "thread.composer.send")
             }
+
+            // Pending attachments sit below the input row, inside the composer
+            // card (issue #471) — the composer reads top-to-bottom.
+            if !attachments.isEmpty || uploading > 0 {
+                attachmentBar
+            }
         }
         .padding(12)
         .background(
@@ -106,6 +125,12 @@ struct ComposerView: View {
                         .strokeBorder(dropTargeted ? MC.accent : MC.hairline2, lineWidth: 1)
                 )
         )
+        .sheet(item: $scheduling) { target in
+            ScheduleMessageSheet(workspaceId: workspaceId, target: target) { _ in
+                text = "" // it's scheduled now; leaving the draft would double-post it
+            }
+            .environmentObject(app)
+        }
         // Clicking anywhere on the card (padding, whitespace) focuses the
         // input; buttons and the text view keep their own click handling.
         .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -285,15 +310,26 @@ struct ComposerView: View {
         }
     }
 
-    /// Shared upload pipeline (paperclip, image paste, drag-and-drop).
+    /// The one funnel every upload goes through — paperclip, image paste and
+    /// drag-and-drop. `ImagePrep` belongs here rather than at each call site,
+    /// the rule #84 settled on for iOS: it can't be forgotten by a new caller.
+    /// Non-images and already-small images come back `nil` and upload untouched.
     private func uploadFiles(_ urls: [URL]) {
         guard let wsId = workspaceId else { return }
         uploading += urls.count
         for url in urls {
             Task { @MainActor in
                 defer { uploading -= 1 }
+                // Off the main actor: decoding and re-encoding a 12MP photo is
+                // long enough to drop frames, and the composer stays live.
+                let prepared = await Task.detached(priority: .userInitiated) {
+                    ImagePrep.prepareForUpload(url)
+                }.value
+                defer { if let prepared { ImagePrep.discard(prepared) } }
                 do {
-                    let file = try await app.engine.uploadFile(workspaceId: wsId, fileURL: url)
+                    let file = try await app.engine.uploadFile(
+                        workspaceId: wsId, fileURL: prepared ?? url
+                    )
                     if attachments.count < 10 { attachments.append(file) }
                 } catch {
                     app.showError("Couldn't upload \(url.lastPathComponent): \(error.localizedDescription)")
@@ -367,25 +403,13 @@ struct ComposerView: View {
     }
 
     private func pickFiles() {
-        guard let wsId = workspaceId else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.begin { response in
             guard response == .OK else { return }
             let urls = panel.urls
-            uploading += urls.count
-            for url in urls {
-                Task { @MainActor in
-                    defer { uploading -= 1 }
-                    do {
-                        let file = try await app.engine.uploadFile(workspaceId: wsId, fileURL: url)
-                        if attachments.count < 10 { attachments.append(file) }
-                    } catch {
-                        app.showError("Couldn't upload \(url.lastPathComponent): \(error.localizedDescription)")
-                    }
-                }
-            }
+            Task { @MainActor in uploadFiles(urls) }
         }
     }
 
@@ -396,21 +420,10 @@ struct ComposerView: View {
     /// uploading counter — same pipeline as the paperclip picker); false lets
     /// the text view paste normally (plain text).
     private func handlePasteImages(_ pasteboard: NSPasteboard) -> Bool {
-        guard let wsId = workspaceId else { return false }
+        guard workspaceId != nil else { return false }
         let urls = Self.pastedImageFileURLs(from: pasteboard)
         guard !urls.isEmpty else { return false }
-        uploading += urls.count
-        for url in urls {
-            Task { @MainActor in
-                defer { uploading -= 1 }
-                do {
-                    let file = try await app.engine.uploadFile(workspaceId: wsId, fileURL: url)
-                    if attachments.count < 10 { attachments.append(file) }
-                } catch {
-                    app.showError("Couldn't paste image: \(error.localizedDescription)")
-                }
-            }
-        }
+        uploadFiles(urls)
         return true
     }
 

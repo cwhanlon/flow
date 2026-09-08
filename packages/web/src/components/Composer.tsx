@@ -7,8 +7,9 @@ import { decorate, domToText, getSelectionOffsets, rebuild, setCaretAt } from '.
 import { useLive, useSelection } from '../state';
 import { useChannelMembers, useChannels, useMembers, useSendMessage } from '../hooks';
 import { useQueryClient } from '@tanstack/react-query';
-import { AuthImg } from './Avatar';
+import { FileImage } from './FileImage';
 import EmojiPicker from './EmojiPicker';
+import { ScheduleMessageModal } from './ScheduleMessageModal';
 
 export default function Composer({
   channelId,
@@ -38,6 +39,8 @@ export default function Composer({
   // Mention-of-non-member CTA (Slack semantics): after sending an @mention of
   // someone outside a standard channel, offer to add them.
   const [missingMentions, setMissingMentions] = useState<string[]>([]);
+  /** The "schedule this instead of sending it" dialog (#420). */
+  const [scheduling, setScheduling] = useState(false);
   const [addedNotice, setAddedNotice] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<FileDTO[]>([]);
@@ -417,42 +420,6 @@ export default function Composer({
         </p>
       )}
 
-      {(attachments.length > 0 || uploading > 0) && (
-        <div className="mb-1 flex flex-wrap items-end gap-1.5">
-          {attachments.map((f) =>
-            f.hasThumb ? (
-              // Image previews in the prompt area (phase 5 item 4): real thumbnail + ✕ overlay.
-              <span key={f.id} data-testid={`pending-file-${f.name}`} className="relative" title={f.name}>
-                <AuthImg
-                  path={`/v1/files/${f.id}/thumb`}
-                  alt={f.name}
-                  className="h-14 w-14 rounded-lg border border-hairline object-cover"
-                />
-                <button
-                  className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-hairline bg-white text-[9px] text-faint shadow-sm hover:text-ink"
-                  title="Remove"
-                  onClick={() => setAttachments((p) => p.filter((x) => x.id !== f.id))}
-                >
-                  ✕
-                </button>
-              </span>
-            ) : (
-              <span
-                key={f.id}
-                data-testid={`pending-file-${f.name}`}
-                className="flex items-center gap-1 rounded-full bg-daypill px-2 py-0.5 text-xs"
-              >
-                📄 {f.name}
-                <button className="text-faint hover:text-ink" onClick={() => setAttachments((p) => p.filter((x) => x.id !== f.id))}>
-                  ✕
-                </button>
-              </span>
-            ),
-          )}
-          {uploading > 0 && <span className="text-xs text-muted">Uploading…</span>}
-        </div>
-      )}
-
       {editingId && (
         <div
           data-testid={`${testPrefix}-editing-banner`}
@@ -528,6 +495,19 @@ export default function Composer({
           >
             @
           </button>
+          {/* Schedule instead of send (#420): same message, posted later. Only on
+              a channel's main composer — a scheduled message is a top-level
+              post, not a thread reply. */}
+          {!threadRootId && (
+            <button
+              data-testid={`${testPrefix}-schedule`}
+              className="hover:text-ink"
+              title="Schedule this message"
+              onClick={() => setScheduling(true)}
+            >
+              🕐
+            </button>
+          )}
           <button
             data-testid={`${testPrefix}-send`}
             className="ml-auto flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-send text-white disabled:opacity-40"
@@ -538,7 +518,54 @@ export default function Composer({
             {editingId ? '✓' : '➤'}
           </button>
         </div>
+
+        {(attachments.length > 0 || uploading > 0) && (
+          <div className="mt-2 flex flex-wrap items-end gap-1.5">
+            {attachments.map((f) =>
+              f.hasThumb ? (
+                // Image previews sit inside the composer card, below the input
+                // row (issue #471): real thumbnail + ✕ overlay.
+                <span key={f.id} data-testid={`pending-file-${f.name}`} className="relative" title={f.name}>
+                  <FileImage
+                    fileId={f.id}
+                    alt={f.name}
+                    className="h-14 w-14 rounded-lg border border-hairline object-cover"
+                  />
+                  <button
+                    className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-hairline bg-white text-[9px] text-faint shadow-sm hover:text-ink"
+                    title="Remove"
+                    onClick={() => setAttachments((p) => p.filter((x) => x.id !== f.id))}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : (
+                <span
+                  key={f.id}
+                  data-testid={`pending-file-${f.name}`}
+                  className="flex items-center gap-1 rounded-full bg-daypill px-2 py-0.5 text-xs"
+                >
+                  📄 {f.name}
+                  <button className="text-faint hover:text-ink" onClick={() => setAttachments((p) => p.filter((x) => x.id !== f.id))}>
+                    ✕
+                  </button>
+                </span>
+              ),
+            )}
+            {uploading > 0 && <span className="text-xs text-muted">Uploading…</span>}
+          </div>
+        )}
       </div>
+
+      {scheduling && sel.workspaceId && (
+        <ScheduleMessageModal
+          workspaceId={sel.workspaceId}
+          initialBody={text}
+          initialChannelId={channelId}
+          onSaved={() => setDraft('')}
+          onClose={() => setScheduling(false)}
+        />
+      )}
 
       {showEmoji && (
         <div className="absolute right-[22px] bottom-full z-30 mb-1">

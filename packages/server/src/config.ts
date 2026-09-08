@@ -33,6 +33,15 @@ export const config = {
   get emailFrom(): string {
     return process.env.FLOW_EMAIL_FROM ?? 'noreply@mail.freeflow.im';
   },
+  /**
+   * Display name paired with `emailFrom` on community broadcasts (#493), so an
+   * announcement arrives from "Free Flow" rather than a naked noreply address.
+   * Auth mail keeps the bare address — a verification link is transactional and
+   * a friendly name there just invites spoofing complaints.
+   */
+  get emailFromName(): string {
+    return process.env.FLOW_EMAIL_FROM_NAME ?? 'Free Flow';
+  },
   get cloudflareAccountId(): string | undefined {
     return process.env.CLOUDFLARE_ACCOUNT_ID;
   },
@@ -42,6 +51,47 @@ export const config = {
   /** Dev driver drops each sent email here as a JSON file (gitignored). */
   get emailOutboxDir(): string {
     return process.env.FLOW_EMAIL_OUTBOX ?? path.join(pkgRoot, '.emails');
+  },
+  // ---- push (APNs) ---------------------------------------------
+  /** 'dev' logs + writes each push to pushOutboxDir; 'apns' talks to Apple (#250). */
+  get pushDriver(): 'dev' | 'apns' {
+    return process.env.FLOW_PUSH_DRIVER === 'apns' ? 'apns' : 'dev';
+  },
+  /** base64 of the .p8 APNs Auth Key. */
+  get apnsKey(): string | undefined {
+    return process.env.FLOW_APNS_KEY;
+  },
+  /** 10-char key id that names the .p8 above. */
+  get apnsKeyId(): string | undefined {
+    return process.env.FLOW_APNS_KEY_ID;
+  },
+  get apnsTeamId(): string | undefined {
+    return process.env.FLOW_APNS_TEAM_ID;
+  },
+  /** APNs topic — the app's bundle id. A device's own bundleId wins over this. */
+  get apnsTopic(): string {
+    return process.env.FLOW_APNS_TOPIC ?? 'im.freeflow.app';
+  },
+  /** Fallback APNs environment; the per-device `environment` column wins over it. */
+  get apnsEnv(): 'sandbox' | 'production' {
+    return process.env.FLOW_APNS_ENV === 'production' ? 'production' : 'sandbox';
+  },
+  /** Dev driver drops each push here as a simctl-ready JSON file (gitignored). */
+  get pushOutboxDir(): string {
+    return process.env.FLOW_PUSH_OUTBOX ?? path.join(pkgRoot, '.push');
+  },
+  /**
+   * Does the message text ride along in the push? (PUSH_APNS.md § "Open
+   * questions for the operator", 1.) Bodies are AES-GCM encrypted at rest, so
+   * including it hands the plaintext to Apple in transit — the spec's option
+   * (a), best UX, and what the operator ruled on 2026-09-01 (decision log).
+   * `FLOW_PUSH_BODY_PREVIEW=0` is option (b): the title still says who, and
+   * nothing the user wrote leaves the server. One switch on purpose, so a
+   * workspace that cares costs an env var rather than a rewrite.
+   */
+  get pushBodyPreview(): boolean {
+    const v = process.env.FLOW_PUSH_BODY_PREVIEW;
+    return !(v === '0' || v === 'false');
   },
   /** Base URL the web client is served from — used in emailed links. */
   get webUrlBase(): string {
@@ -63,6 +113,21 @@ export const config = {
     return (process.env.FLOW_REDIRECT_FROM_HOSTS ?? '')
       .split(',')
       .map((h) => h.trim().toLowerCase())
+      .filter(Boolean);
+  },
+  /**
+   * Origins allowed to call the API cross-origin (docs/design/ANDROID.md,
+   * phase 0). The web client is served by this process and is same-origin, so
+   * it never needs this; a packaged client served from its own origin
+   * (`capacitor://localhost`, `https://localhost`) does. Exact-match list,
+   * comma-separated; empty (the default) registers no CORS layer at all, so a
+   * pure-web deployment is untouched. Auth is a Bearer header, not a cookie,
+   * so credentialed CORS is never enabled.
+   */
+  get corsOrigins(): readonly string[] {
+    return (process.env.FLOW_CORS_ORIGINS ?? '')
+      .split(',')
+      .map((o) => o.trim().toLowerCase())
       .filter(Boolean);
   },
   /**
@@ -159,4 +224,21 @@ export const config = {
   thumbMaxPx: 512,
   avatarPx: 512,
   orphanFileTtlHours: 24, // unattached files older than this are swept (decision log ruling 5)
+  // ---- voice huddle (Phase 1, LiveKit Cloud) ---------------------
+  get livekitApiKey(): string | undefined {
+    return process.env.LIVEKIT_API_KEY || undefined;
+  },
+  get livekitApiSecret(): string | undefined {
+    return process.env.LIVEKIT_API_SECRET || undefined;
+  },
+  /** Project URL, e.g. https://<project>.livekit.cloud. */
+  get livekitUrl(): string | undefined {
+    return process.env.LIVEKIT_URL || undefined;
+  },
+  /** Huddles are available. When false, join/leave 503 and clients hide the affordance. */
+  get livekitEnabled(): boolean {
+    return !!(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET && process.env.LIVEKIT_URL);
+  },
+  /** No token-refresh path exists yet (decision log 2026-08-20), so this errs long. */
+  livekitTokenTtl: '24h',
 } as const;

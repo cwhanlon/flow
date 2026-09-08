@@ -5,14 +5,19 @@ import { api, blobUrl, fileStreamUrl, fileText } from '../lib/api';
 import { bytesLabel, displayTime, InlineLinkContext, renderBlocks } from '../lib/format';
 import { isTextFile, isVideoFile } from '../lib/fileKind';
 import { INTERRUPT_EMOJI, isThinkingStatus } from '../lib/agentStatus';
-import { useAuth, useSelection } from '../state';
+import { burstConfetti, celebrationsAdded } from '../lib/confetti';
+import { SCHEDULED_VIEW_ID, useAuth, useSelection } from '../state';
 import { useSendMessage, useTogglePin, useToggleReaction, useWorkspaceEmojiMap } from '../hooks';
-import type { LocalMessage } from '../lib/messageCache';
-import { Avatar, AuthImg } from './Avatar';
+import { removeMessageFromCache, type LocalMessage } from '../lib/messageCache';
+import { messageDeleteConfirmation, messageDeleteMode } from '../lib/messagePermissions';
+import { Avatar } from './Avatar';
+import { useFileImageSource, type FileImageSource } from './FileImage';
+import { LightboxButton, LightboxShell } from './Lightbox';
 import { EmojiGlyph } from './CustomEmoji';
 import EmojiPicker from './EmojiPicker';
 import { Modal, UserCard } from './modals';
 import { UnfurlCard } from './UnfurlCard';
+import { HoverTooltip } from './HoverTooltip';
 
 /** Remembered scroll position per channel, so switching away and back lands
  * where you left off (ui_nits). Kept module-level (survives the per-channel
@@ -53,6 +58,7 @@ export default function MessageList({
   hasMore,
   onLoadOlder,
   showThreadAffordances,
+  unreadThreadRootIds = [],
   scrollKey,
   focusMessageId = null,
   onFocused,
@@ -63,6 +69,10 @@ export default function MessageList({
   hasMore: boolean;
   onLoadOlder: () => void;
   showThreadAffordances: boolean;
+  /** Thread roots with an unread notification for me (#270) — their reply
+   * chips get a dot, so a reply that needs you is visible here and not only
+   * in the sidebar badge. */
+  unreadThreadRootIds?: string[];
   /** Enables per-view scroll-position memory (channels pass their id; threads omit it). */
   scrollKey?: string;
   /** Jump-to-message target (phase 12): scroll it into view + flash it once
@@ -206,7 +216,10 @@ export default function MessageList({
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={m.id}>
+            // Keyed on clientMsgId, not id: the optimistic row and its server
+            // echo share a clientMsgId but not an id, so keying on id
+            // remounts the row (and re-flashes its avatar) on reconcile.
+            <div key={m.clientMsgId || m.id}>
               {startsNewDay(messages, i) && <DayDivider iso={m.createdAt} />}
               {m.systemKind ? (
                 <SystemLine message={m} />
@@ -217,6 +230,7 @@ export default function MessageList({
                   membersById={membersById}
                   showHeader={showsHeader(messages, i)}
                   showThreadAffordances={showThreadAffordances}
+                  threadUnread={unreadThreadRootIds.includes(m.id)}
                 />
               )}
             </div>
@@ -239,7 +253,7 @@ export default function MessageList({
   );
 }
 
-function showsHeader(messages: MessageDTO[], index: number): boolean {
+export function showsHeader(messages: MessageDTO[], index: number): boolean {
   if (index === 0) return true;
   if (startsNewDay(messages, index)) return true;
   const prev = messages[index - 1]!;
@@ -248,6 +262,10 @@ function showsHeader(messages: MessageDTO[], index: number): boolean {
   // re-shows its author header rather than merging into the pre-notice group.
   if (prev.systemKind) return true;
   if (prev.userId !== cur.userId) return true;
+  // A scheduled message always starts its own group (#420). Merged into the
+  // author's own preceding message it would inherit that header — and lose the
+  // badge, which is the one thing saying nobody typed this just now.
+  if (prev.scheduled !== cur.scheduled) return true;
   return new Date(cur.createdAt).getTime() - new Date(prev.createdAt).getTime() > 300_000;
 }
 
@@ -344,12 +362,15 @@ function MessageRow({
   membersById,
   showHeader,
   showThreadAffordances,
+  threadUnread = false,
 }: {
   message: MessageDTO;
   names: Record<string, string>;
   membersById: Record<string, WorkspaceMemberDTO>;
   showHeader: boolean;
   showThreadAffordances: boolean;
+  /** This thread holds an unread notification for me (#270). */
+  threadUnread?: boolean;
 }) {
   const auth = useAuth();
   const sel = useSelection();
@@ -367,7 +388,13 @@ function MessageRow({
   // menu while it's the one loaded in the composer.
   const editing = sel.editingMessageId === message.id;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const mine = message.userId === auth.user.id;
+  const deleteMode = messageDeleteMode(message, auth.user.id, membersById[auth.user.id]?.role);
+  const deleteConfirmation = deleteMode
+    ? messageDeleteConfirmation(deleteMode, message.threadRootId, message.replyCount)
+    : null;
   const sender = names[message.userId] ?? 'Unknown';
   const member = membersById[message.userId];
   // Optimistic row awaiting the server echo: actions suppressed. It renders
@@ -383,6 +410,49 @@ function MessageRow({
   const stopping = message.reactions.some(
     (r) => r.emoji === INTERRUPT_EMOJI && r.userIds.includes(auth.user.id),
   );
+
+  // Confetti when a 🎉 lands (#514). This runs after commit, so the reaction
+  // row it fires from is already on screen — and `celebrationsAdded` is what
+  // keeps it to genuine additions rather than every render of history.
+  const reactionRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const added = celebrationsAdded(message.id, message.reactions);
+    const row = reactionRowRef.current;
+    if (added.length === 0 || !row) return;
+    for (const emoji of added) {
+      // From the pill that just changed, not the middle of the row — the row is
+      // as wide as the message, so its centre is nowhere near the reaction.
+      const pill = row.querySelector(`[data-testid="reaction-${emoji}"]`) ?? row;
+      const rect = pill.getBoundingClientRect();
+      burstConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+  }, [message.id, message.reactions]);
+
+  const deleteSelectedMessage = async () => {
+    if (!deleteMode || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api('DELETE', `/v1/messages/${message.id}${deleteMode === 'permanent' ? '?purge=true' : ''}`);
+      if (deleteMode === 'permanent') {
+        removeMessageFromCache(qc, message);
+        if (message.threadRootId === null && sel.threadRootId === message.id) sel.openThread(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ['messages', message.channelId] }),
+          qc.invalidateQueries({ queryKey: ['channels', sel.workspaceId] }),
+          qc.invalidateQueries({ queryKey: ['pins', message.channelId] }),
+          qc.invalidateQueries({ queryKey: ['channelFiles', message.channelId] }),
+          qc.invalidateQueries({ queryKey: ['notifications'] }),
+          qc.invalidateQueries({ queryKey: ['workspaces'] }),
+        ]);
+      }
+      setConfirmDelete(false);
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Pin the message's file(s) as shared artifacts in this channel (phase 13);
   // the new artifact opens in the side panel automatically.
@@ -438,6 +508,7 @@ function MessageRow({
                 </span>
               )}
             </span>
+            {message.scheduled && <ScheduledBadge author={sender} />}
             <span className="text-[11px] text-faint">{displayTime(message.createdAt)}</span>
           </div>
         )}
@@ -457,11 +528,19 @@ function MessageRow({
               </div>
             )}
             {message.body.trim() && (
-              <div className="text-sm leading-normal break-words whitespace-pre-wrap">
+              // data-search-body marks what the cmd-F find bar searches (#518):
+              // the rendered body only, so a query never matches chrome. The
+              // "(edited)" marker sits inside it, hence the skip flag.
+              <div
+                data-search-body=""
+                className="text-sm leading-normal break-words whitespace-pre-wrap"
+              >
                 <InlineLinkContext.Provider value={{ onPinLink: (url) => void pinUrl(url) }}>
                   {renderBlocks(message.body, names, auth.user.id)}
                 </InlineLinkContext.Provider>
-                {message.editedAt && <span className="ml-1 text-xs text-faint">(edited)</span>}
+                {message.editedAt && (
+                  <span data-search-skip="" className="ml-1 text-xs text-faint">(edited)</span>
+                )}
               </div>
             )}
             {thinking && (
@@ -523,7 +602,7 @@ function MessageRow({
               />
             ))}
             {message.reactions.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-1">
+              <div ref={reactionRowRef} className="mt-1 flex flex-wrap gap-1">
                 {message.reactions.map((r) => {
                   const mineR = r.userIds.includes(auth.user.id);
                   return (
@@ -551,9 +630,21 @@ function MessageRow({
         {showThreadAffordances && message.replyCount > 0 && (
           <button
             data-testid={`thread-open-${message.id}`}
-            className="mt-1 flex cursor-pointer items-center gap-2 rounded-[10px] border border-hairline bg-white py-[5px] pr-2.5 pl-1.5 text-xs hover:border-hairline2"
+            data-thread-unread={threadUnread ? 'true' : undefined}
+            className={`mt-1 flex cursor-pointer items-center gap-2 rounded-[10px] border bg-white py-[5px] pr-2.5 pl-1.5 text-xs ${
+              threadUnread ? 'border-unread/45 hover:border-unread' : 'border-hairline hover:border-hairline2'
+            }`}
             onClick={() => sel.openThread(message.id)}
           >
+            {/* A reply in here needs you (#270) — the sidebar badge says the
+                channel has something, this says which thread. */}
+            {threadUnread && (
+              <span
+                data-testid={`thread-unread-${message.id}`}
+                title="Unread reply"
+                className="size-[7px] shrink-0 rounded-full bg-unread"
+              />
+            )}
             {(message.replyParticipantUserIds ?? []).length > 0 && (
               <span className="flex -space-x-1.5" data-testid={`thread-participants-${message.id}`}>
                 {message.replyParticipantUserIds.map((id) => (
@@ -577,110 +668,116 @@ function MessageRow({
         )}
       </div>
 
-      {!message.deletedAt && !editing && !pending && !failed && (
+      {!editing && !pending && !failed && (!message.deletedAt || deleteMode === 'permanent') && (
         <div className="absolute top-0 right-[22px] hidden items-center gap-0.5 rounded-xl border border-hairline bg-white px-1.5 py-1 shadow-sm group-hover:flex">
-          {QUICK_REACTIONS.map((emoji) => {
-            const mineR = message.reactions.find((r) => r.emoji === emoji)?.userIds.includes(auth.user.id) ?? false;
-            return (
-              <button
-                key={emoji}
-                data-testid={`quick-react-${emoji}-${message.id}`}
-                className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-                title={`React ${emoji}`}
-                onClick={() => toggle.mutate({ message, emoji, mine: mineR })}
-              >
-                {emoji}
-              </button>
-            );
-          })}
-          <div className="mx-0.5 h-6 w-px self-center bg-hairline" />
-          <button
-            data-testid={`add-reaction-${message.id}`}
-            className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-            title="Add reaction"
-            onClick={() => setShowPicker(true)}
-          >
-            🙂
-          </button>
-          {showThreadAffordances && (
-            <button
-              className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-              title="Reply in thread"
-              onClick={() => sel.openThread(message.threadRootId ?? message.id)}
-            >
-              💬
-            </button>
-          )}
-          {message.body && (
-            <button
-              data-testid={`copy-message-${message.id}`}
-              className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-              title="Copy text"
-              onClick={() => void navigator.clipboard?.writeText(message.body)}
-            >
-              📋
-            </button>
-          )}
-          <button
-            data-testid={`toggle-pin-${message.id}`}
-            className={`flex items-center rounded-md px-1.5 py-1 leading-none hover:bg-daypill ${
-              message.pinnedAt ? 'text-accent-soft' : 'text-ink'
-            }`}
-            title={message.pinnedAt ? 'Unpin message' : 'Pin message'}
-            onClick={() => togglePin.mutate(message)}
-          >
-            <PinIcon filled={!!message.pinnedAt} />
-          </button>
-          {message.files.length > 0 && (
-            <button
-              data-testid={`pin-artifact-${message.id}`}
-              className="flex items-center rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-              title="Pin as artifact"
-              onClick={() => void pinFiles()}
-            >
-              <ExternalLinkIcon />
-            </button>
-          )}
-          {mine && (
+          {!message.deletedAt && (
             <>
+              {QUICK_REACTIONS.map((emoji) => {
+                const mineR = message.reactions.find((r) => r.emoji === emoji)?.userIds.includes(auth.user.id) ?? false;
+                return (
+                  <button
+                    key={emoji}
+                    data-testid={`quick-react-${emoji}-${message.id}`}
+                    className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
+                    title={`React ${emoji}`}
+                    onClick={() => toggle.mutate({ message, emoji, mine: mineR })}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
+              <div className="mx-0.5 h-6 w-px self-center bg-hairline" />
               <button
-                data-testid={`edit-message-${message.id}`}
+                data-testid={`add-reaction-${message.id}`}
                 className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-                title="Edit"
-                onClick={() => sel.setEditingMessage(message.id)}
+                title="Add reaction"
+                onClick={() => setShowPicker(true)}
               >
-                ✏️
+                🙂
               </button>
+              {showThreadAffordances && (
+                <button
+                  className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
+                  title="Reply in thread"
+                  onClick={() => sel.openThread(message.threadRootId ?? message.id)}
+                >
+                  💬
+                </button>
+              )}
+              {message.body && (
+                <button
+                  data-testid={`copy-message-${message.id}`}
+                  className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
+                  title="Copy text"
+                  onClick={() => void navigator.clipboard?.writeText(message.body)}
+                >
+                  📋
+                </button>
+              )}
+              <button
+                data-testid={`toggle-pin-${message.id}`}
+                className={`flex items-center rounded-md px-1.5 py-1 leading-none hover:bg-daypill ${
+                  message.pinnedAt ? 'text-accent-soft' : 'text-ink'
+                }`}
+                title={message.pinnedAt ? 'Unpin message' : 'Pin message'}
+                onClick={() => togglePin.mutate(message)}
+              >
+                <PinIcon filled={!!message.pinnedAt} />
+              </button>
+              {message.files.length > 0 && (
+                <button
+                  data-testid={`pin-artifact-${message.id}`}
+                  className="flex items-center rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
+                  title="Pin as artifact"
+                  onClick={() => void pinFiles()}
+                >
+                  <ExternalLinkIcon />
+                </button>
+              )}
+              {mine && (
+                <button
+                  data-testid={`edit-message-${message.id}`}
+                  className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
+                  title="Edit"
+                  onClick={() => sel.setEditingMessage(message.id)}
+                >
+                  ✏️
+                </button>
+              )}
+            </>
+          )}
+          {deleteMode && (
               <button
                 data-testid={`delete-message-${message.id}`}
                 className="rounded-md px-1.5 py-1 text-lg leading-none hover:bg-daypill"
-                title="Delete"
-                onClick={() => setConfirmDelete(true)}
+                title={deleteMode === 'permanent' ? 'Permanently delete' : 'Delete'}
+                onClick={() => {
+                  setDeleteError(null);
+                  setConfirmDelete(true);
+                }}
               >
                 🗑
               </button>
-            </>
           )}
         </div>
       )}
 
       {showCard && <UserCard userId={message.userId} onClose={() => setShowCard(false)} />}
 
-      {confirmDelete && (
+      {confirmDelete && deleteConfirmation && (
         <Modal onClose={() => setConfirmDelete(false)} testid="delete-confirm-modal">
-          <h3 className="mb-2 font-bold">Delete message?</h3>
-          <p className="mb-3 text-sm text-muted">This can't be undone.</p>
+          <h3 className="mb-2 font-bold">{deleteConfirmation.title}</h3>
+          <p className="mb-3 text-sm text-muted">{deleteConfirmation.body}</p>
+          {deleteError && <p className="mb-3 text-sm text-red-600">{deleteError}</p>}
           <div className="flex justify-end gap-2">
-            <button className="px-3 py-1.5 text-sm text-ink-soft" onClick={() => setConfirmDelete(false)}>Cancel</button>
+            <button disabled={deleting} className="px-3 py-1.5 text-sm text-ink-soft" onClick={() => setConfirmDelete(false)}>Cancel</button>
             <button
               data-testid="delete-confirm"
+              disabled={deleting}
               className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white"
-              onClick={() => {
-                setConfirmDelete(false);
-                void api('DELETE', `/v1/messages/${message.id}`);
-              }}
+              onClick={() => void deleteSelectedMessage()}
             >
-              Delete
+              {deleting ? 'Deleting…' : deleteConfirmation.confirmLabel}
             </button>
           </div>
         </Modal>
@@ -792,24 +889,110 @@ function ImageAttachment({ file }: { file: FileDTO }) {
   const [collapsed, toggleCollapsed] = useCollapsed(file.id);
   const [lightbox, setLightbox] = useState(false);
   const download = useDownload(file);
+  const variant = file.mimeType === 'image/gif' ? 'original' : 'thumbnail';
+  const image = useFileImageSource(file.id, variant, !collapsed);
 
-  // GIFs skip the static webp thumb and render the original so they animate.
-  const imgPath = file.mimeType === 'image/gif' ? `/v1/files/${file.id}` : `/v1/files/${file.id}/thumb`;
   return (
     <div className="mt-1">
       <CardHeader file={file} collapsed={collapsed} onToggle={toggleCollapsed} />
       {!collapsed && (
-        <div className="group/att relative mt-0.5 w-fit">
-          <button data-testid={`file-${file.name}`} className="block" onClick={() => setLightbox(true)} title={file.name}>
-            {/* ~2x preview (ui_nits item 1). Thumbs cap at 512px, so an img
-                never stretches past its intrinsic size — large images land at
-                512 CSS px (soft on retina; noted at review). */}
-            <AuthImg path={imgPath} alt={file.name} className="max-h-[480px] max-w-[min(576px,100%)] rounded-lg border border-hairline" />
-          </button>
-          <DownloadHoverButton file={file} onDownload={download} />
-        </div>
+        <AttachmentImagePreview
+          file={file}
+          image={image}
+          onOpen={() => setLightbox(true)}
+          onDownload={download}
+        />
       )}
       {lightbox && <ImageLightbox file={file} onClose={() => setLightbox(false)} onDownload={download} />}
+    </div>
+  );
+}
+
+const IMAGE_PREVIEW_MAX_WIDTH = 512;
+const IMAGE_PREVIEW_MAX_HEIGHT = 480;
+const IMAGE_PREVIEW_FALLBACK_WIDTH = 320;
+const IMAGE_PREVIEW_FALLBACK_HEIGHT = 240;
+const IMAGE_PREVIEW_MIN_EDGE = 96;
+
+/** Definite outer geometry keeps loading and failed previews visible and
+ * removes the fit-content/percentage-width cycle that is fragile on phones. */
+export function attachmentPreviewStyle(file: Pick<FileDTO, 'width' | 'height'>): React.CSSProperties {
+  const sourceWidth = file.width && file.width > 0 ? file.width : IMAGE_PREVIEW_FALLBACK_WIDTH;
+  const sourceHeight = file.height && file.height > 0 ? file.height : IMAGE_PREVIEW_FALLBACK_HEIGHT;
+  const scale = Math.min(1, IMAGE_PREVIEW_MAX_WIDTH / sourceWidth, IMAGE_PREVIEW_MAX_HEIGHT / sourceHeight);
+  return {
+    width: Math.max(IMAGE_PREVIEW_MIN_EDGE, Math.round(sourceWidth * scale)),
+    maxWidth: '100%',
+    minHeight: IMAGE_PREVIEW_MIN_EDGE,
+    aspectRatio: `${sourceWidth} / ${sourceHeight}`,
+  };
+}
+
+/** Presentational seam kept separate from loading so all states can be
+ * regression-tested without a browser or network. */
+export function AttachmentImagePreview({
+  file,
+  image,
+  onOpen,
+  onDownload,
+}: {
+  file: FileDTO;
+  image: FileImageSource;
+  onOpen: () => void;
+  onDownload: () => Promise<void>;
+}) {
+  return (
+    <div
+      data-testid={`file-image-frame-${file.name}`}
+      className="group/att relative mt-0.5 max-w-full min-w-0 overflow-hidden rounded-lg border border-hairline bg-daypill"
+      style={attachmentPreviewStyle(file)}
+    >
+      {image.src && image.status !== 'failed' && (
+        <button
+          type="button"
+          data-testid={`file-${file.name}`}
+          className={`absolute inset-0 block h-full w-full ${image.status === 'loaded' ? '' : 'opacity-0'}`}
+          onClick={onOpen}
+          title={file.name}
+        >
+          <img
+            src={image.src}
+            alt={file.name}
+            className="h-full w-full object-contain"
+            onLoad={image.onLoad}
+            onError={image.onError}
+          />
+        </button>
+      )}
+      {image.status === 'loading' && (
+        <div role="status" className="absolute inset-0 flex items-center justify-center text-xs text-faint">
+          Loading preview…
+        </div>
+      )}
+      {image.status === 'failed' && (
+        <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center text-xs text-faint">
+          <span>Preview unavailable</span>
+          <span className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              data-testid={`file-retry-${file.name}`}
+              className="rounded-md border border-hairline bg-white px-2 py-1 font-semibold text-ink hover:border-hairline2"
+              onClick={image.retry}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              data-testid={`file-error-download-${file.name}`}
+              className="rounded-md border border-hairline bg-white px-2 py-1 font-semibold text-ink hover:border-hairline2"
+              onClick={() => void onDownload()}
+            >
+              Download
+            </button>
+          </span>
+        </div>
+      )}
+      {image.status === 'loaded' && <DownloadHoverButton file={file} onDownload={onDownload} />}
     </div>
   );
 }
@@ -865,18 +1048,18 @@ function VideoAttachment({ file }: { file: FileDTO }) {
     <div className="mt-1">
       <CardHeader file={file} collapsed={collapsed} onToggle={toggleCollapsed} />
       {!collapsed && (
-        <div className="group/att relative mt-0.5 w-fit">
+        <div className="group/att relative mt-0.5 w-[min(576px,100%)]">
           {url ? (
             <video
               data-testid={`file-video-${file.name}`}
               src={url}
               controls
               preload="metadata"
-              className="max-h-[480px] max-w-[min(576px,100%)] rounded-lg border border-hairline bg-black"
+              className="block h-auto max-h-[480px] w-full rounded-lg border border-hairline bg-black"
               onError={onVideoError}
             />
           ) : (
-            <div className="flex h-[240px] w-[min(426px,100%)] items-center justify-center rounded-lg border border-hairline bg-daypill text-2xl text-faint">
+            <div className="flex h-[240px] w-full items-center justify-center rounded-lg border border-hairline bg-daypill text-2xl text-faint">
               ▶
             </div>
           )}
@@ -910,46 +1093,19 @@ function VideoLightbox({
   onClose: () => void;
   onDownload: () => Promise<void>;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
   return (
-    <div
-      data-testid="video-lightbox"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75"
-      onMouseDown={onClose}
-    >
-      <div className="absolute top-4 right-5 flex gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
-        <button
-          data-testid="video-lightbox-download"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white hover:bg-white/30"
-          title="Download"
-          onClick={() => void onDownload()}
-        >
+    <LightboxShell
+      testId="video-lightbox"
+      onClose={onClose}
+      caption={file.name}
+      actions={
+        <LightboxButton testId="video-lightbox-download" title="Download" onClick={() => void onDownload()}>
           ⤓
-        </button>
-        <button
-          data-testid="video-lightbox-close"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white hover:bg-white/30"
-          title="Close"
-          onClick={onClose}
-        >
-          ✕
-        </button>
-      </div>
-      <video
-        src={url}
-        controls
-        autoPlay
-        className="max-h-[85vh] max-w-[88vw] rounded-lg bg-black"
-        onMouseDown={(e) => e.stopPropagation()}
-      />
-      <span className="mt-3 max-w-[80vw] truncate text-xs text-white/70" onMouseDown={(e) => e.stopPropagation()}>
-        {file.name}
-      </span>
-    </div>
+        </LightboxButton>
+      }
+    >
+      <video src={url} controls autoPlay className="max-h-[85vh] max-w-[88vw] rounded-lg bg-black" />
+    </LightboxShell>
   );
 }
 
@@ -1153,62 +1309,73 @@ function ImageLightbox({
   onClose: () => void;
   onDownload: () => Promise<void>;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void blobUrl(`/v1/files/${file.id}`).then((u) => { if (alive) setUrl(u); }).catch(() => {});
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      alive = false;
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [file.id, onClose]);
+  const image = useFileImageSource(file.id, 'original');
   return (
-    <div
-      data-testid="lightbox"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75"
-      onMouseDown={onClose}
+    <LightboxShell
+      testId="lightbox"
+      onClose={onClose}
+      caption={file.name}
+      actions={
+        <>
+          <LightboxButton
+            testId="lightbox-open-external"
+            title="Open external"
+            onClick={() => { if (image.src) window.open(image.src, '_blank'); }}
+          >
+            ↗
+          </LightboxButton>
+          <LightboxButton testId="lightbox-download" title="Download" onClick={() => void onDownload()}>
+            ⤓
+          </LightboxButton>
+        </>
+      }
     >
-      <div className="absolute top-4 right-5 flex gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
-        <button
-          data-testid="lightbox-open-external"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white hover:bg-white/30"
-          title="Open external"
-          onClick={() => { if (url) window.open(url, '_blank'); }}
-        >
-          ↗
-        </button>
-        <button
-          data-testid="lightbox-download"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white hover:bg-white/30"
-          title="Download"
-          onClick={() => void onDownload()}
-        >
-          ⤓
-        </button>
-        <button
-          data-testid="lightbox-close"
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white hover:bg-white/30"
-          title="Close"
-          onClick={onClose}
-        >
-          ✕
-        </button>
-      </div>
-      {url ? (
+      {image.src && image.status !== 'failed' ? (
         <img
-          src={url}
+          src={image.src}
           alt={file.name}
           className="max-h-[85vh] max-w-[88vw] rounded-lg object-contain"
-          onMouseDown={(e) => e.stopPropagation()}
+          onLoad={image.onLoad}
+          onError={image.onError}
         />
+      ) : image.status === 'failed' ? (
+        <div role="alert" className="flex flex-col items-center gap-2 text-sm text-white/70">
+          <span>Preview unavailable</span>
+          <button
+            type="button"
+            className="rounded-md border border-white/30 px-3 py-1.5 font-semibold text-white hover:bg-white/10"
+            onClick={image.retry}
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <span className="text-sm text-white/70">Loading…</span>
       )}
-      <span className="mt-3 max-w-[80vw] truncate text-xs text-white/70" onMouseDown={(e) => e.stopPropagation()}>
-        {file.name}
-      </span>
-    </div>
+    </LightboxShell>
+  );
+}
+
+/**
+ * "🕐 SCHEDULED" next to the author name (#420): this message was posted by
+ * one of their scheduled messages rather than typed just now. It is
+ * deliberately a badge on an otherwise ordinary message — the author, the
+ * mentions and the notifications are all real, and only the timing was
+ * automatic. Clicking it opens the Scheduled panel, where the row that posted
+ * it lives.
+ */
+function ScheduledBadge({ author }: { author: string }) {
+  const sel = useSelection();
+  return (
+    <HoverTooltip text={`Posted automatically · runs as ${author} · click to open Scheduled`}>
+      <button
+        type="button"
+        data-testid="scheduled-badge"
+        className="cursor-pointer rounded bg-accent/10 px-1.5 py-px text-[10px] font-bold tracking-wide text-accent-deep uppercase"
+        onClick={() => sel.selectChannel(SCHEDULED_VIEW_ID)}
+      >
+        🕐 Scheduled
+      </button>
+    </HoverTooltip>
   );
 }
