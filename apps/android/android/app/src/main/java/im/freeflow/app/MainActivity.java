@@ -20,6 +20,9 @@ public class MainActivity extends BridgeActivity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    // Before super.onCreate: that is where the bridge is built and the page
+    // loaded, and a plugin registered later is invisible to it.
+    registerPlugin(FlowShellPlugin.class);
     super.onCreate(savedInstanceState);
     installBackHandling();
     installDownloads();
@@ -51,11 +54,12 @@ public class MainActivity extends BridgeActivity {
   }
 
   /**
-   * Downloads land in the system Downloads folder with a notification, via
-   * DownloadManager. Only http(s) URLs qualify — presigned file links the
-   * server hands out — which need no auth header; the web client fetches
-   * everything authenticated itself and hands the WebView blob: URLs, which
-   * DownloadManager cannot take (a phase-1 gap noted in apps/android/README.md).
+   * Downloads of http(s) URLs land in the system Downloads folder with a
+   * notification, via DownloadManager — presigned file links the server hands
+   * out, which need no auth header. Everything the web client fetches with
+   * its own auth reaches the WebView as a blob: URL, which DownloadManager
+   * cannot take; those go through FlowShellPlugin.saveFile instead, called by
+   * the page (packages/web/src/lib/download.ts).
    */
   private void installDownloads() {
     WebView webView = getBridge() == null ? null : getBridge().getWebView();

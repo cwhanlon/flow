@@ -81,9 +81,12 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
   Escape should call the same hook.
 - **Keyboard**: `adjustResize`, so the composer rises with the IME.
 - **Downloads**: http(s) links go to Downloads/ via DownloadManager with a
-  notification. Gap: files the web client fetches itself (authenticated
-  `/v1/files`, handed to the WebView as `blob:` URLs) do not reach
-  DownloadManager yet — they open in place; saving them is follow-up work.
+  notification. Files the web client fetches with its own auth (`/v1/files`,
+  `blob:` URLs in the page) go through the shell's one plugin,
+  `FlowShell.saveFile` — MediaStore Downloads on Android 10+, the app's own
+  external Downloads folder on 7–9 (no storage permission either way). The
+  page calls it via `lib/download.ts` and falls back to `<a download>` in a
+  browser.
 - **Reconnect**: the WebSocket reconnects the moment the OS reports the network
   back, on top of the existing watchdog.
 - **Status bar** in the workspace purple (static; per-workspace tint needs a
