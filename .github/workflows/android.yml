@@ -13,6 +13,7 @@
 #
 # Which server the APK talks to is baked into the web bundle, so it is a
 # repository variable too: ANDROID_API_BASE (default https://app.freeflow.im).
+# ANDROID_RUNNER picks the runner label (default ubuntu-latest).
 # ANDROID_DEV_BUILD=1 additionally relaxes the WebView for a plain-http server
 # (apps/android/README.md) — dev/LAN targets only, never for a public one.
 #
@@ -49,7 +50,10 @@ permissions:
 
 jobs:
   debug-apk:
-    runs-on: ubuntu-latest
+    # A fork can point this lane at its own runner with the ANDROID_RUNNER
+    # variable (e.g. `self-hosted`, or a JSON label list); unset — upstream's
+    # state — it is GitHub's Ubuntu image, which ships the Android SDK.
+    runs-on: ${{ vars.ANDROID_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     # `contents: write` only matters for the release step; it is harmless on a
     # PR run, where that step is skipped.
