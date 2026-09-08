@@ -12,6 +12,14 @@ later phases in that doc.
   from `../../packages/web/dist`.
 - `android/` — the Gradle project Capacitor generated (`npx cap add android`).
   Committed, like any native project; `android/app/build/` is not.
+- `android/app/debug.keystore` — a committed **debug** keystore (the
+  conventional `android`/`androiddebugkey` credentials, no secret in it) so
+  every debug APK, from CI or a dev box, carries the same signature and
+  installs over the previous one. Release signing will be a separate,
+  uncommitted keystore (phase 6).
+- `assets/` — icon sources (`icon-only.png` is the iOS 1024px icon,
+  `icon-background.png` the brand purple); `npx @capacitor/assets generate
+  --android` regenerates `android/app/src/main/res/`.
 - This package has **no `build` script**, so `pnpm -r build` (CI, Railway)
   never needs an Android SDK. The APK comes from `apk:debug` or the
   `android.yml` workflow.
@@ -40,6 +48,10 @@ pnpm --filter @flow/android apk:debug
 Then `adb install -r app-debug.apk`. The server must list the app's origin:
 `FLOW_CORS_ORIGINS=https://localhost` (see `docs/ops/DEPLOYMENT.md`).
 
+Version: `versionCode` is `1` for a local build; CI passes
+`-PflowVersionCode=$(git rev-list --count HEAD)` — the same derivation as
+`apps/ios/tools/release-ios.sh` — so nothing is ever bumped in a PR.
+
 ### Against a plain-http dev server on the LAN
 
 A release-shaped WebView refuses cleartext and mixed content, so a dev build
@@ -52,6 +64,20 @@ pnpm --filter @flow/android apk:debug:dev     # FLOW_ANDROID_DEV=1
 
 `FLOW_ANDROID_DEV=1` turns on `server.cleartext`, `android.allowMixedContent`
 and remote WebView inspection (`chrome://inspect`). Dev builds only.
+
+## CI: `.github/workflows/android.yml`
+
+- Every PR touching `apps/android/**` or the web client gets a debug APK as
+  a workflow artifact (login required to download). Reports, does not block.
+- A push to `main` or a `feat/android-*` branch **also attaches the APK to a
+  rolling pre-release** when the repository variable `ANDROID_DEV_RELEASE_TAG`
+  is set — a stable, login-free link for testers:
+  `https://github.com/<owner>/flow/releases/download/<tag>/flow-android-debug.apk`.
+  Unset = no release is touched (upstream's default).
+- Which server the APK talks to is the variable `ANDROID_API_BASE`
+  (default `https://app.freeflow.im`); `ANDROID_DEV_BUILD=1` makes it a dev
+  build for a plain-http target. An APK is only usable against a server that
+  lists `https://localhost` in `FLOW_CORS_ORIGINS`.
 
 ## Phone over Wi-Fi from the build VM
 
