@@ -1,2 +1,5 @@
 packages:
   - packages/*
+  # Android shell (docs/design/ANDROID.md) — a workspace member so it shares
+  # the lockfile; it has no `build` script, so `pnpm -r build` stays SDK-free.
+  - apps/android

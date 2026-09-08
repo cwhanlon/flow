@@ -1,0 +1,74 @@
+# Debug APK for every PR that touches the Android shell or the web client it
+# bundles (docs/design/ANDROID.md phase 0). Reports, does not block — same
+# posture as ci.yml. The APK is uploaded as a workflow artifact so a reviewer
+# can sideload it; nothing is published.
+#
+# Why a separate workflow and not a step in ci.yml: `pnpm -r build` must stay
+# SDK-free (it is what Railway runs), and this lane needs the Android SDK,
+# JDK 21 and a Gradle download — several minutes that server/web-only PRs
+# should not pay. ubuntu-latest ships the SDK; setup-java brings the JDK.
+name: android
+
+on:
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'packages/web/**'
+      - 'packages/shared/**'
+      - '.github/workflows/android.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The bundle bakes in the server it talks to. The CI artifact targets
+      # production; a self-host builds its own (apps/android/README.md).
+      - name: Build web client for the shell
+        env:
+          VITE_API_BASE: https://app.freeflow.im
+        run: |
+          pnpm --filter @flow/shared build
+          pnpm --filter @flow/web build
+
+      - name: Sync web assets into the Android project
+        run: pnpm --filter @flow/android sync
+
+      - name: Assemble debug APK
+        working-directory: apps/android/android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow-android-debug-${{ github.sha }}
+          path: apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

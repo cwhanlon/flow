@@ -242,6 +242,26 @@ Simulator, device install, signing, and server selection:
 
 ---
 
+## Android app
+
+The web client in a Capacitor shell — `apps/android` (route and phasing in
+[docs/design/ANDROID.md](docs/design/ANDROID.md)). The Gradle project is
+committed; the web bundle is synced into it at build time and **bakes in the
+server it talks to**, so build the dist for the target first:
+
+```sh
+VITE_API_BASE=https://app.freeflow.im pnpm --filter @flow/web build
+pnpm --filter @flow/android apk:debug
+# → apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Needs JDK 21 + Android SDK 36 (`ANDROID_HOME`); `pnpm -r build` deliberately
+does not. `.github/workflows/android.yml` builds a debug APK artifact for PRs
+touching `apps/android/**` or `packages/web/**`. No Play listing or release
+script yet — that is phase 6 of the design doc; nothing ships automatically.
+
+---
+
 ## Marketing site (freeflow.im)
 
 The landing page in `flowlandingpage/` is a standalone Next.js project — **not
