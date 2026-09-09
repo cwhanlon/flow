@@ -38,6 +38,20 @@
                 <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/join/" />
                 <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/invite/" />
             </intent-filter>
+
+            <!-- Share target (ANDROID.md phase 5): text, links, photos, video,
+                 documents from any app's share sheet, into a channel picker.
+                 Any type, like every chat app, since the composer takes any file. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
 
         <!-- Keeps a huddle alive in the background (ANDROID.md phase 4). Not

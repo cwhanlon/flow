@@ -3,14 +3,18 @@ package im.freeflow.app;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.OpenableColumns;
 import android.webkit.URLUtil;
 import android.webkit.WebView;
 import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The shell around packages/web (docs/design/ANDROID.md, phase 1). Everything
@@ -31,6 +35,9 @@ public class MainActivity extends BridgeActivity {
     // A link the app was launched with: the page is not up yet, so park it for
     // the page to collect at boot (FlowShell.consumeLaunchUrl).
     deliverLink(getIntent(), true);
+    // Likewise something shared into the app; not again on a re-creation,
+    // which would post the same share twice.
+    if (savedInstanceState == null) deliverShare(getIntent(), true);
   }
 
   /** singleTask: a link while the app is alive arrives here, not in onCreate. */
@@ -39,6 +46,7 @@ public class MainActivity extends BridgeActivity {
     super.onNewIntent(intent);
     setIntent(intent);
     deliverLink(intent, false);
+    deliverShare(intent, false);
   }
 
   /**
@@ -58,6 +66,60 @@ public class MainActivity extends BridgeActivity {
     webView.evaluateJavascript(DeepLinks.openUrlJs(url), result -> {
       if (!"true".equals(result)) FlowShellPlugin.setPendingUrl(url);
     });
+  }
+
+  /**
+   * Something shared from another app (ANDROID.md phase 5): text, a link,
+   * photos, a video, documents. The shell describes the files — the page has
+   * no ContentResolver — and hands the lot to the page, which shows the
+   * channel picker (packages/web/src/lib/share.ts) and later reads the bytes
+   * through Capacitor's local server. Parked like a link when the page is
+   * not up yet.
+   */
+  private void deliverShare(Intent intent, boolean coldStart) {
+    if (intent == null || !ShareIntents.isShare(intent.getAction())) return;
+    List<ShareIntents.Item> items = new ArrayList<>();
+    if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
+      ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+      if (uris != null) for (Uri u : uris) if (u != null) items.add(describe(u));
+    } else {
+      Uri u = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+      if (u != null) items.add(describe(u));
+    }
+    String json = ShareIntents.payloadJson(
+        intent.getCharSequenceExtra(Intent.EXTRA_TEXT), intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT), items);
+    if (json == null) return;
+    WebView webView = getBridge() == null ? null : getBridge().getWebView();
+    if (coldStart || webView == null) {
+      FlowShellPlugin.setPendingShare(json);
+      return;
+    }
+    webView.evaluateJavascript(ShareIntents.openShareJs(json), result -> {
+      if (!"true".equals(result)) FlowShellPlugin.setPendingShare(json);
+    });
+  }
+
+  /** Display name, type and size as the provider reports them. */
+  private ShareIntents.Item describe(Uri uri) {
+    String name = null;
+    long size = -1;
+    String type = getContentResolver().getType(uri);
+    try (Cursor c = getContentResolver().query(
+        uri, new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE}, null, null, null)) {
+      if (c != null && c.moveToFirst()) {
+        int n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+        int sz = c.getColumnIndex(OpenableColumns.SIZE);
+        if (n >= 0) name = c.getString(n);
+        if (sz >= 0 && !c.isNull(sz)) size = c.getLong(sz);
+      }
+    } catch (RuntimeException ignored) {
+      // A provider that refuses the query still serves the bytes.
+    }
+    if (name == null || name.isEmpty()) {
+      String last = uri.getLastPathSegment();
+      name = last == null || last.isEmpty() ? "shared-file" : last;
+    }
+    return new ShareIntents.Item(uri.toString(), name, type, size);
   }
 
   /**

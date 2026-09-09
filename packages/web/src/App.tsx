@@ -23,6 +23,7 @@ import { shouldShowServerPicker } from './lib/serverPicker';
 import { installBackBridge, isPackagedShell } from './lib/shell';
 import { exchangeSigninCode, installOpenUrlBridge, parseDeepLink } from './lib/deepLink';
 import { consumeLaunchUrl } from './lib/flowShell';
+import { consumeShare, installShareBridge, setPendingShare } from './lib/share';
 import { disablePush, enablePush, setPendingTap } from './lib/push';
 import NativeSignIn from './components/NativeSignIn';
 import WorkspaceChooser from './components/WorkspaceChooser';
@@ -216,6 +217,10 @@ export default function App() {
     if (!isPackagedShell()) return;
     installOpenUrlBridge(handleDeepLink);
     void consumeLaunchUrl().then((url) => { if (url) handleDeepLink(url); });
+    // Something shared from another app (ANDROID.md phase 5) is parked the
+    // same way; the main pane shows the channel picker once it is up.
+    installShareBridge();
+    void consumeShare().then((p) => { if (p) setPendingShare(p); });
   }, [handleDeepLink]);
 
   // Push (ANDROID.md phase 3): once signed in, register this device with the
