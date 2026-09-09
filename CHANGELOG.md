@@ -302,6 +302,12 @@ This file keeps two things:
   separately — both already open a thread from an *Activity* row.
 
 ### Deliberate divergences (ruled)
+- **Android is online-only, with no offline cache** (`docs/design/ANDROID.md`,
+  phase 6 ruling). The Android app is the web client in a Capacitor shell, and
+  the web client keeps no local message store; macOS and iOS carry their own
+  sync engines. A cached transcript on Android would be a third store to keep
+  honest, for a client whose whole premise is reusing the web one. Revisit
+  only if the native Kotlin exit ramp is taken.
 - **Inline chat find (cmd-F) is web + macOS only** (#518, as specified). Both
   clients open a find bar over the loaded transcript; iOS was scoped out because
   there is no hardware find shortcut to hang it on. Nothing about the search is

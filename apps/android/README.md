@@ -223,6 +223,55 @@ side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` /
   build for a plain-http target. An APK is only usable against a server that
   lists `https://localhost` in `FLOW_CORS_ORIGINS`.
 
+## Release (phase 6)
+
+Releasing is a separate act from merging (BUILD.md). One command, from `main`:
+
+```
+apps/android/tools/release-android.sh                # internal testing track
+apps/android/tools/release-android.sh --track beta   # alpha / beta / production
+apps/android/tools/release-android.sh --dry-run      # the plan, no build
+```
+
+The version code is **one more than the largest on any live Play track**
+(`tools/play.mjs latest-code`), never a number in the repo; the script builds
+a signed bundle with it, uploads it (`play.mjs upload`), and tags
+`android-v<code>` only after the upload succeeds. `VERSION` is the marketing
+version only — bump it when the product does. `android-release.yml` runs the
+same script from a manual dispatch.
+
+What it needs, and where it comes from:
+
+| Env | What |
+| --- | --- |
+| `FLOW_ANDROID_KEYSTORE`, `_KEYSTORE_PASSWORD`, `_KEY_ALIAS`, `_KEY_PASSWORD` | The **upload** keystore. Generate once (`keytool -genkeypair -keyalg RSA -keysize 4096 -validity 10000`), keep it out of the repo, back it up; losing it means a key-reset request to Google. |
+| `FLOW_PLAY_SERVICE_ACCOUNT` | Path to a service-account JSON key that Play Console lists as a user with release permission on the app. |
+| `FLOW_ANDROID_API_BASE` | The server the build talks to (default `https://app.freeflow.im`), baked into the web bundle. |
+
+Play Console, once per app (the human half):
+
+1. **Create the app** in Play Console (`im.freeflow.app`), pay the developer
+   registration if the account is new.
+2. **Play App Signing** is on by default for a new app: when the first bundle
+   is uploaded Google generates the app-signing key and registers our key as
+   the upload key. Nothing to configure unless the app existed before.
+3. **Service account**: Google Cloud Console → IAM → service account → JSON
+   key; then Play Console → Users and permissions → invite that account's
+   email with *Release to testing tracks* (and *production* when ready) on
+   the app. The Publishing API must be enabled on the Cloud project.
+4. **Internal testing track**: add the testers' emails; the first release
+   also needs the store listing basics (name, short description, icon,
+   screenshots, content rating questionnaire, privacy policy URL) before Play
+   accepts a rollout. Play's UGC policy also wants in-app reporting and user
+   blocking before a production listing — Flow lacks both (ANDROID.md, Risks).
+5. **App Links after signing**: the server's `FLOW_ANDROID_CERT_SHA256` must
+   carry Google's *app signing* certificate fingerprint (Play Console → Setup
+   → App integrity → App signing key certificate), not the upload key's — a
+   Play-installed build is signed with Google's key.
+
+Local, one-off: `pnpm --filter @flow/android test:tools` runs the tooling's
+unit tests (`node --test`); `--dry-run` works without any credentials.
+
 ## Phone over Wi-Fi from the build VM
 
 Hyper-V has no USB passthrough. Android 11+: Developer options → Wireless
