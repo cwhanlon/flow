@@ -42,6 +42,27 @@ public class FlowShellPlugin extends Plugin {
     pendingUrl = url;
   }
 
+  /** A share the app was launched with (ANDROID.md phase 5); same parking. */
+  private static volatile String pendingShare;
+
+  static void setPendingShare(String payloadJson) {
+    pendingShare = payloadJson;
+  }
+
+  @PluginMethod
+  public void consumeShare(PluginCall call) {
+    JSObject ret = new JSObject();
+    String json = pendingShare;
+    pendingShare = null;
+    try {
+      if (json == null) ret.put("payload", JSObject.NULL);
+      else ret.put("payload", new JSObject(json));
+    } catch (org.json.JSONException e) {
+      ret.put("payload", JSObject.NULL);
+    }
+    call.resolve(ret);
+  }
+
   @PluginMethod
   public void consumeLaunchUrl(PluginCall call) {
     JSObject ret = new JSObject();

@@ -155,9 +155,59 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
   does, the `huddle` notification channel and a full-screen intent are the
   Android half.
 
+## Share target (phase 5)
+
+Flow is in every app's share sheet (`ACTION_SEND` / `ACTION_SEND_MULTIPLE`,
+any type). `MainActivity.deliverShare` describes each shared file — display
+name, type, size, from its provider — and hands text, subject and files to the
+page as one payload (`ShareIntents`), parked like a launch link when the page
+is not up (`FlowShell.consumeShare`) or through `window.__flowShare` when it
+is. The page (`lib/share.ts`) shows **Share to Flow** — workspace, channel or
+person — and stages the result into that channel's composer: the text as the
+draft, the files uploaded the way picked files are. The user adds a caption
+and sends; nothing is posted from the picker. Mirrors the iOS share extension
+(#214/#221), including the size check against `/v1/config`'s `maxFileBytes`
+before any upload.
+
+Files are never copied: the composer reads them through Capacitor's local
+server (`https://localhost/_capacitor_content_/…` → the app's ContentResolver)
+while the sending app's URI grant lasts, which is the life of the activity.
+The read does buffer the whole file in the WebView before the presigned PUT,
+so a video near the 500 MB cap is at the mercy of the device's memory — a
+native streaming upload is the fix if that bites.
+
+Try it without another app:
+
+```
+adb shell "am start -a android.intent.action.SEND -t text/plain \
+  -e android.intent.extra.SUBJECT 'Example Domain' -e android.intent.extra.TEXT https://example.com/ \
+  -n im.freeflow.app/.MainActivity"
+```
+
+A file shared this way from `adb shell` fails to read (the shell's URI grant
+does not reach a MediaStore item, and the sheet says so); share from the
+Files or Photos app to exercise the real grant.
+
+## Performance notes (phase 5 pass)
+
+Measured on a Moto G Power (2020, Snapdragon 665, Android 11), debug APK,
+LAN server. Repeat before a release and after a WebView-heavy change:
+
+| What | How | Result |
+| --- | --- | --- |
+| Cold start to first frame | `adb shell am start -W -n im.freeflow.app/.MainActivity` after `am force-stop`, 3 runs | 1.43-1.48 s |
+| Scroll through 300+ messages | `dumpsys gfxinfo im.freeflow.app reset`, 24 flings, `dumpsys gfxinfo im.freeflow.app` | 1.6 % janky frames, p50 10 ms, p99 17 ms |
+| Memory, channel open | `dumpsys meminfo im.freeflow.app` | ~130 MB PSS |
+| Push in Doze | `dumpsys battery unplug` + `dumpsys deviceidle force-idle`, then a mention from another user | notification in 6 s while deep-idle |
+
+Doze needs no code: the FCM driver sends alert pushes at high priority, which
+is what wakes a dozing device; the WebSocket is dead in Doze by design and
+reconnects on foreground (phase 1). `dumpsys deviceidle unforce` and
+`dumpsys battery reset` afterwards.
+
 Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
 side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` /
-`push.test.ts` / `huddleShell.test.ts` / `ws.test.ts`.
+`push.test.ts` / `huddleShell.test.ts` / `share.test.ts` / `ws.test.ts`.
 
 ## CI: `.github/workflows/android.yml`
 

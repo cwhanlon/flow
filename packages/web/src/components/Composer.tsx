@@ -4,6 +4,7 @@ import { emojiMatches } from '@flow/shared';
 import { api, uploadFile } from '../lib/api';
 import { transformOutgoing } from '../lib/format';
 import { decorate, domToText, getSelectionOffsets, rebuild, setCaretAt } from '../lib/composerDom';
+import { subscribeStaged, takeStaged, type StagedDraft } from '../lib/share';
 import { useLive, useSelection } from '../state';
 import { useChannelMembers, useChannels, useMembers, useSendMessage } from '../hooks';
 import { useQueryClient } from '@tanstack/react-query';
@@ -256,6 +257,24 @@ export default function Composer({
     }
     if (fileRef.current) fileRef.current.value = '';
   };
+
+  // A share from another app (ANDROID.md phase 5), parked by the picker for
+  // this channel's composer: text joins the draft, files go through the same
+  // upload path a picked file takes. A thread composer is never the target.
+  useEffect(() => {
+    if (threadRootId) return;
+    const apply = (d: StagedDraft) => {
+      if (d.text) {
+        const el = editorRef.current;
+        const current = el ? domToText(el) : '';
+        setDraft(current.trim() ? `${current}\n${d.text}` : d.text);
+      }
+      if (d.files.length > 0) void pickFiles(d.files);
+    };
+    const parked = takeStaged(channelId);
+    if (parked) apply(parked);
+    return subscribeStaged(channelId, apply);
+  }, [channelId, threadRootId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Image paste (phase 3.5 item 3): pasted images upload like picked files.
   // Everything else is spliced in as text/plain — no rich HTML can leak into

@@ -21,6 +21,8 @@ import { apiUrl } from '../lib/apiBase';
 import { backAction, isPackagedShell, registerBackHandler } from '../lib/shell';
 import { takePendingTap } from '../lib/push';
 import ShellHuddleBridge from './ShellHuddleBridge';
+import ShareSheet from './ShareSheet';
+import { subscribePendingShare, takePendingShare, type SharePayload } from '../lib/share';
 import { SocketClient, type SocketStatus } from '../lib/ws';
 import { plainBody } from '../lib/format';
 import { ACTIVITY_VIEW_ID, ADMIN_VIEW_ID, DIRECTORY_VIEW_ID, SCHEDULED_VIEW_ID, LiveContext, MobileNavContext, typingKey, useAuth, useSelection } from '../state';
@@ -499,6 +501,19 @@ export default function Main() {
     [isMobile, drawerOpen],
   );
 
+  // A share from another app (ANDROID.md phase 5), parked by App: the picker
+  // takes over until a channel is chosen or it is dismissed.
+  const [share, setShare] = useState<SharePayload | null>(null);
+  useEffect(() => {
+    if (!isPackagedShell()) return;
+    const take = () => {
+      const p = takePendingShare();
+      if (p) setShare(p);
+    };
+    take();
+    return subscribePendingShare(take);
+  }, []);
+
   // A notification tap parked by App (ANDROID.md phase 3): jump to the
   // message the way the Activity feed does, once this pane shows its workspace.
   useEffect(() => {
@@ -542,6 +557,7 @@ export default function Main() {
       <HuddleProvider>
       <HuddleWiring bridge={huddleBridge} />
       <ShellHuddleBridge />
+      {share && <ShareSheet payload={share} onClose={() => setShare(null)} onPicked={() => setDrawerOpen(false)} />}
       <div className="flex h-full flex-col bg-base text-ink">
         {!isPackagedShell() && <OpenInAppBanner />}
         <HuddleMiniBar />

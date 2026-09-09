@@ -15,6 +15,8 @@ export interface FlowShellPlugin {
   setHuddleActive(options: { active: boolean; title?: string }): Promise<void>;
   /** Route call audio to the speaker or the earpiece (phase 4). */
   setSpeaker(options: { on: boolean }): Promise<void>;
+  /** What another app shared into Flow at launch, handed over once (phase 5). */
+  consumeShare(): Promise<{ payload: unknown }>;
 }
 
 interface CapacitorRuntime {
