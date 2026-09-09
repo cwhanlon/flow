@@ -40,6 +40,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Keeps a huddle alive in the background (ANDROID.md phase 4). Not
+             exported: only the app's own plugin starts it (a debug-build
+             overlay exports it for adb-driven checks). -->
+        <service
+            android:name=".HuddleService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -54,4 +62,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The composer's <input type=file capture> can offer the camera (ANDROID.md phase 1). -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Huddles (ANDROID.md phase 4): the WebView's getUserMedia becomes the OS
+         microphone prompt only if the app declares it; the audio route and the
+         background call need the rest. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
