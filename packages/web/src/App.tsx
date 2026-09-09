@@ -23,6 +23,7 @@ import { shouldShowServerPicker } from './lib/serverPicker';
 import { installBackBridge, isPackagedShell } from './lib/shell';
 import { exchangeSigninCode, installOpenUrlBridge, parseDeepLink } from './lib/deepLink';
 import { consumeLaunchUrl } from './lib/flowShell';
+import { disablePush, enablePush, setPendingTap } from './lib/push';
 import NativeSignIn from './components/NativeSignIn';
 import WorkspaceChooser from './components/WorkspaceChooser';
 import Main from './components/Main';
@@ -217,8 +218,32 @@ export default function App() {
     void consumeLaunchUrl().then((url) => { if (url) handleDeepLink(url); });
   }, [handleDeepLink]);
 
+  // Push (ANDROID.md phase 3): once signed in, register this device with the
+  // server; re-done on every launch since tokens rotate silently. A tap on a
+  // notification switches to its workspace and parks the jump for the main
+  // pane, which takes it once that workspace is showing (Main.tsx).
+  useEffect(() => {
+    if (!user || !isPackagedShell()) return;
+    let off = () => {};
+    let alive = true;
+    void enablePush((tap) => {
+      setPendingTap(tap);
+      localStorage.setItem(ACTIVE_WS_KEY, tap.workspaceId);
+      setWorkspaceId(tap.workspaceId);
+    }).then((teardown) => {
+      if (alive) off = teardown;
+      else teardown();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [user?.id]);
+
   const signOut = useCallback(() => {
-    void api('POST', '/v1/auth/logout').catch(() => {});
+    // The device stops being this user's *before* the session goes: the
+    // unregister needs the token that logout invalidates.
+    void disablePush().finally(() => api('POST', '/v1/auth/logout').catch(() => {}));
     setToken(null);
     setUser(null);
     setWorkspaceId(null);

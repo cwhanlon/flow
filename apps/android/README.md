@@ -116,8 +116,25 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
   collected once at boot (`FlowShell.consumeLaunchUrl`); one arriving while
   the page is up is pushed through `window.__flowOpenUrl` (`MainActivity.onNewIntent`).
 
+## Push (phase 3)
+
+- Transport is FCM, via Capacitor's `PushNotifications` plugin; the app's
+  `google-services.json` (committed, not secret) names the Firebase project
+  and the server's `FLOW_FCM_SERVICE_ACCOUNT` (secret) is the matching key.
+  Both must come from the same project.
+- On sign-in the app asks for permission, creates one notification channel
+  per kind (`lib/push.ts` `ANDROID_CHANNELS` — the server's FCM driver names
+  the same ids), registers with FCM and `POST /v1/me/devices` with
+  `platform: 'android'`; on sign-out it `DELETE`s the token.
+- The server sends the same payload it builds for iOS; the FCM driver
+  translates it (title/body → tray notification on the kind's channel,
+  routing keys → `data`). Muted and badge-only pushes are data-only.
+- A tap opens the app and jumps to the message; a tap from a cold start is
+  parked until the workspace is showing.
+
 Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
-side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` / `ws.test.ts`.
+side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` /
+`push.test.ts` / `ws.test.ts`.
 
 ## CI: `.github/workflows/android.yml`
 
