@@ -756,7 +756,14 @@ export const RegisterDeviceBody = z
     bundleId: z.string().min(1).max(255).optional(),
   })
   .superRefine((b, ctx) => {
-    if (b.platform !== 'ios') return;
+    if (b.platform === 'android') {
+      // The row shape follows the platform both ways: an android row must not
+      // carry the APNs fields, or the sender would trust an environment/topic
+      // that means nothing to FCM.
+      if (b.environment !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['environment'], message: 'not used for android' });
+      if (b.bundleId !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundleId'], message: 'not used for android' });
+      return;
+    }
     if (!APNS_TOKEN_RE.test(b.token)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['token'], message: 'must be a hex APNs device token' });
     }

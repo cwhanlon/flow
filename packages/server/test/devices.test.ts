@@ -167,7 +167,7 @@ describe('POST /v1/me/devices', () => {
   it('rejects a malformed body', async () => {
     for (const bad of [
       { ...body(), token: 'not-hex' },
-      { ...body(), platform: 'android' },
+      { ...body(), platform: 'android' }, // android with the APNs-only fields (ANDROID.md phase 3)
       { ...body(), environment: 'staging' },
       { ...body(), bundleId: '' },
       { platform: 'ios', environment: 'sandbox', bundleId: 'im.freeflow.app' }, // no token
