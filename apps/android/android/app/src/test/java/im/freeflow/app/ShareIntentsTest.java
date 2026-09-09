@@ -49,6 +49,15 @@ public class ShareIntentsTest {
   }
 
   @Test
+  public void aNamelessFileIsNamedByItsType() {
+    assertEquals("shared-file.jpg", ShareIntents.fallbackName("image/jpeg"));
+    assertEquals("shared-file.png", ShareIntents.fallbackName("image/png"));
+    assertEquals("shared-file.pdf", ShareIntents.fallbackName("application/pdf"));
+    assertEquals("shared-file", ShareIntents.fallbackName("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+    assertEquals("shared-file", ShareIntents.fallbackName(null));
+  }
+
+  @Test
   public void nothingToShareIsNull() {
     assertNull(ShareIntents.payloadJson(null, null, null));
     assertNull(ShareIntents.payloadJson("   ", "Subject alone", Collections.emptyList()));

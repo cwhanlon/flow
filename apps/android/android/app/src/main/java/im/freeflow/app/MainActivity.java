@@ -115,10 +115,7 @@ public class MainActivity extends BridgeActivity {
     } catch (RuntimeException ignored) {
       // A provider that refuses the query still serves the bytes.
     }
-    if (name == null || name.isEmpty()) {
-      String last = uri.getLastPathSegment();
-      name = last == null || last.isEmpty() ? "shared-file" : last;
-    }
+    if (name == null || name.isEmpty()) name = ShareIntents.fallbackName(type);
     return new ShareIntents.Item(uri.toString(), name, type, size);
   }
 

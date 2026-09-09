@@ -179,9 +179,31 @@ native streaming upload is the fix if that bites.
 Try it without another app:
 
 ```
-adb shell am start -a android.intent.action.SEND -t text/plain \
-  -e android.intent.extra.SUBJECT "Example" -e android.intent.extra.TEXT "https://example.com" im.freeflow.app
+adb shell "am start -a android.intent.action.SEND -t text/plain \
+  -e android.intent.extra.SUBJECT 'Example Domain' -e android.intent.extra.TEXT https://example.com/ \
+  -n im.freeflow.app/.MainActivity"
 ```
+
+A file shared this way from `adb shell` fails to read (the shell's URI grant
+does not reach a MediaStore item, and the sheet says so); share from the
+Files or Photos app to exercise the real grant.
+
+## Performance notes (phase 5 pass)
+
+Measured on a Moto G Power (2020, Snapdragon 665, Android 11), debug APK,
+LAN server. Repeat before a release and after a WebView-heavy change:
+
+| What | How | Result |
+| --- | --- | --- |
+| Cold start to first frame | `adb shell am start -W -n im.freeflow.app/.MainActivity` after `am force-stop`, 3 runs | 1.43-1.48 s |
+| Scroll through 300+ messages | `dumpsys gfxinfo im.freeflow.app reset`, 24 flings, `dumpsys gfxinfo im.freeflow.app` | 1.6 % janky frames, p50 10 ms, p99 17 ms |
+| Memory, channel open | `dumpsys meminfo im.freeflow.app` | ~130 MB PSS |
+| Push in Doze | `dumpsys battery unplug` + `dumpsys deviceidle force-idle`, then a mention from another user | notification in 6 s while deep-idle |
+
+Doze needs no code: the FCM driver sends alert pushes at high priority, which
+is what wakes a dozing device; the WebSocket is dead in Doze by design and
+reconnects on foreground (phase 1). `dumpsys deviceidle unforce` and
+`dumpsys battery reset` afterwards.
 
 Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
 side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` /

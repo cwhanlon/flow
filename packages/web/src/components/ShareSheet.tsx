@@ -85,7 +85,7 @@ export default function ShareSheet({
   const wsList = workspaces.data ?? [];
   return (
     <Modal onClose={onClose} testid="share-sheet">
-      <h2 className="text-base font-semibold">Share to Flow</h2>
+      <h3 className="font-bold">Share to Flow</h3>
       <p className="mt-0.5 text-sm text-faint">Sharing {shareSummary(payload)}. Pick where it goes.</p>
       {wsList.length > 1 && (
         <select
@@ -108,7 +108,6 @@ export default function ShareSheet({
         placeholder="Find a channel or person"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        autoFocus
       />
       {errors.map((e) => (
         <p key={e} className="mt-2 text-xs text-red-600">{e}</p>

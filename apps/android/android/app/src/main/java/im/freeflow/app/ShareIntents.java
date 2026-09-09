@@ -29,6 +29,22 @@ final class ShareIntents {
     }
   }
 
+  /**
+   * A name for a file whose provider gave none: the numeric tail of a
+   * MediaStore URI is no name to show. The extension comes from the type so
+   * the server and the composer treat it as what it is.
+   */
+  static String fallbackName(String mimeType) {
+    String ext = "";
+    if (mimeType != null) {
+      int slash = mimeType.indexOf('/');
+      String sub = slash < 0 ? "" : mimeType.substring(slash + 1).toLowerCase(java.util.Locale.ROOT);
+      if (sub.equals("jpeg")) ext = ".jpg";
+      else if (!sub.isEmpty() && sub.matches("[a-z0-9]{1,5}")) ext = "." + sub;
+    }
+    return "shared-file" + ext;
+  }
+
   static boolean isShare(String action) {
     return Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
   }
