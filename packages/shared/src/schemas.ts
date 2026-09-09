@@ -733,19 +733,36 @@ export type ListScheduledMessagesQuery = z.infer<typeof ListScheduledMessagesQue
  * that sends uppercase on one launch and lowercase on the next still hits the
  * same row instead of creating a second one.
  */
+/** A push token: APNs' hex (32–256 chars) or FCM's opaque registration token
+ * (URL-safe characters, colons included, up to 4 KB). The per-platform rule
+ * below narrows it further at registration. */
 export const DeviceTokenParam = z
   .string()
-  .regex(/^[0-9a-fA-F]{32,256}$/, 'must be a hex APNs device token');
+  .regex(/^[A-Za-z0-9_:-]{20,4096}$/, 'must be a device push token');
 
-/** POST /v1/me/devices — register (or re-register) this device for push. */
-export const RegisterDeviceBody = z.object({
-  token: DeviceTokenParam,
-  /** iOS only for now; macOS joins the enum when it registers for push. */
-  platform: z.enum(['ios']),
-  environment: z.enum(['sandbox', 'production']),
-  /** APNs topic — the app's bundle id, e.g. `im.freeflow.app`. */
-  bundleId: z.string().min(1).max(255),
-});
+const APNS_TOKEN_RE = /^[0-9a-fA-F]{32,256}$/;
+
+/** POST /v1/me/devices — register (or re-register) this device for push.
+ *
+ * `environment` and `bundleId` are APNs concepts (sandbox vs production, the
+ * topic) with no FCM counterpart (ANDROID.md phase 3): required for ios,
+ * absent for android. Enforced here, so the row shape follows the platform. */
+export const RegisterDeviceBody = z
+  .object({
+    token: DeviceTokenParam,
+    platform: z.enum(['ios', 'android']),
+    environment: z.enum(['sandbox', 'production']).optional(),
+    /** APNs topic — the app's bundle id, e.g. `im.freeflow.app`. */
+    bundleId: z.string().min(1).max(255).optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (b.platform !== 'ios') return;
+    if (!APNS_TOKEN_RE.test(b.token)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['token'], message: 'must be a hex APNs device token' });
+    }
+    if (!b.environment) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['environment'], message: 'required for ios' });
+    if (!b.bundleId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundleId'], message: 'required for ios' });
+  });
 export type RegisterDeviceBody = z.infer<typeof RegisterDeviceBody>;
 
 // ---- community email (#481) ------------------------------------

@@ -19,6 +19,7 @@ import { applyChannelEmoji, applyHuddle, applyIndicator } from '../lib/channelCa
 import { api, getToken } from '../lib/api';
 import { apiUrl } from '../lib/apiBase';
 import { backAction, isPackagedShell, registerBackHandler } from '../lib/shell';
+import { takePendingTap } from '../lib/push';
 import { SocketClient, type SocketStatus } from '../lib/ws';
 import { plainBody } from '../lib/format';
 import { ACTIVITY_VIEW_ID, ADMIN_VIEW_ID, DIRECTORY_VIEW_ID, SCHEDULED_VIEW_ID, LiveContext, MobileNavContext, typingKey, useAuth, useSelection } from '../state';
@@ -496,6 +497,14 @@ export default function Main() {
     }),
     [isMobile, drawerOpen],
   );
+
+  // A notification tap parked by App (ANDROID.md phase 3): jump to the
+  // message the way the Activity feed does, once this pane shows its workspace.
+  useEffect(() => {
+    if (!sel.workspaceId) return;
+    const tap = takePendingTap(sel.workspaceId);
+    if (tap) sel.jumpToMessage(tap.channelId, tap.messageId, tap.threadRootId);
+  }, [sel.workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hardware back in the packaged app (ANDROID.md phase 1): thread → side
   // panel → drawer, and only then the OS. Registered for as long as the main

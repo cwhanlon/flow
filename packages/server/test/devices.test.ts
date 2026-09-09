@@ -206,6 +206,34 @@ describe('DELETE /v1/me/devices/:token', () => {
   });
 });
 
+// Android joins the registry (ANDROID.md phase 3): an FCM token is opaque and
+// case-sensitive, and the APNs-only columns are absent.
+describe('android devices', () => {
+  const FCM = 'dXyZ_9:APA91bFakeTokenWithMixedCase-and_underscores0123456789';
+
+  it('registers with just a token and platform, stored exactly as sent', async () => {
+    const res = await register(aliceToken, { token: FCM, platform: 'android' });
+    expect(res.statusCode).toBe(200);
+    const rows = await db.select().from(deviceTokens).where(eq(deviceTokens.token, FCM));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ userId: aliceId, platform: 'android', environment: null, bundleId: null });
+  });
+
+  it('still insists on the APNs fields for ios', async () => {
+    const res = await register(aliceToken, { token: TOKEN, platform: 'ios' });
+    expect(res.statusCode).toBe(400);
+    const bad = await register(aliceToken, { token: FCM, platform: 'ios', environment: 'sandbox', bundleId: 'im.freeflow.app' });
+    expect(bad.statusCode).toBe(400); // an FCM-shaped token is not an APNs token
+  });
+
+  it('unregisters the exact token', async () => {
+    await register(bobToken, { token: FCM + '-bob', platform: 'android' });
+    const res = await unregister(bobToken, encodeURIComponent(FCM + '-bob'));
+    expect(res.statusCode).toBe(200);
+    expect(await db.select().from(deviceTokens).where(eq(deviceTokens.token, FCM + '-bob'))).toHaveLength(0);
+  });
+});
+
 describe('account lifecycle', () => {
   // The FK cascade alone does not cover this: DELETE /v1/me tombstones the user
   // (row kept for message authorship), so nothing is ever deleted from `users`
