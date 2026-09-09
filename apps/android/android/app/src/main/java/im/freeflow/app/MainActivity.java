@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
     super.onCreate(savedInstanceState);
     installBackHandling();
     installDownloads();
+    installPopups();
     // A link the app was launched with: the page is not up yet, so park it for
     // the page to collect at boot (FlowShell.consumeLaunchUrl).
     deliverLink(getIntent(), true);
@@ -82,6 +83,18 @@ public class MainActivity extends BridgeActivity {
         });
       }
     });
+  }
+
+  /**
+   * window.open from the page or a mini-app iframe (ANDROID.md phase 4): with
+   * multiple windows unsupported the WebView drops it silently; supported, it
+   * asks FlowWebChromeClient, which sends the URL to the system browser.
+   */
+  private void installPopups() {
+    WebView webView = getBridge() == null ? null : getBridge().getWebView();
+    if (webView == null) return;
+    webView.getSettings().setSupportMultipleWindows(true);
+    webView.setWebChromeClient(new FlowWebChromeClient(getBridge()));
   }
 
   /**

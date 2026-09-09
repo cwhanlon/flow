@@ -11,6 +11,10 @@ export interface FlowShellPlugin {
   consumeLaunchUrl(): Promise<{ url: string | null }>;
   /** Open an http(s) URL in the system browser — a Chrome Custom Tab (phase 2). */
   openExternal(options: { url: string }): Promise<void>;
+  /** A huddle started (foreground service + speaker) or ended (phase 4). */
+  setHuddleActive(options: { active: boolean; title?: string }): Promise<void>;
+  /** Route call audio to the speaker or the earpiece (phase 4). */
+  setSpeaker(options: { on: boolean }): Promise<void>;
 }
 
 interface CapacitorRuntime {

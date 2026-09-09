@@ -20,6 +20,7 @@ import { api, getToken } from '../lib/api';
 import { apiUrl } from '../lib/apiBase';
 import { backAction, isPackagedShell, registerBackHandler } from '../lib/shell';
 import { takePendingTap } from '../lib/push';
+import ShellHuddleBridge from './ShellHuddleBridge';
 import { SocketClient, type SocketStatus } from '../lib/ws';
 import { plainBody } from '../lib/format';
 import { ACTIVITY_VIEW_ID, ADMIN_VIEW_ID, DIRECTORY_VIEW_ID, SCHEDULED_VIEW_ID, LiveContext, MobileNavContext, typingKey, useAuth, useSelection } from '../state';
@@ -540,6 +541,7 @@ export default function Main() {
      <MobileNavContext.Provider value={mobileNav}>
       <HuddleProvider>
       <HuddleWiring bridge={huddleBridge} />
+      <ShellHuddleBridge />
       <div className="flex h-full flex-col bg-base text-ink">
         {!isPackagedShell() && <OpenInAppBanner />}
         <HuddleMiniBar />

@@ -132,9 +132,32 @@ and remote WebView inspection (`chrome://inspect`). Dev builds only.
 - A tap opens the app and jumps to the message; a tap from a cold start is
   parked until the workspace is showing.
 
+## Huddles and mini apps (phase 4)
+
+- **Microphone**: Capacitor turns the page's `getUserMedia` into the Android
+  prompt because `RECORD_AUDIO` is declared; nothing else to do.
+- **Background call**: when a huddle starts the page tells the shell
+  (`ShellHuddleBridge` → `FlowShell.setHuddleActive`), which runs
+  `HuddleService` — a foreground service with the `microphone` type and an
+  ongoing "In a huddle" notification — and routes audio to the speaker
+  (`MODE_IN_COMMUNICATION`). Both are undone when the huddle ends.
+  `FlowShell.setSpeaker` flips the route by hand.
+- **Popups**: `window.open` from the page or a mini-app iframe reaches
+  `FlowWebChromeClient.onCreateWindow` and goes to the system browser (Custom
+  Tab); same-origin and non-web targets are dropped (`PopupPolicy`). Mini apps
+  otherwise render inline in the side panel's sandboxed iframe, as on iOS.
+- Debug builds export `HuddleService` so it can be driven from adb without a
+  live huddle:
+  `adb shell am start-foreground-service -n im.freeflow.app/.HuddleService -a im.freeflow.app.huddle.START --es title "Huddle in #general"`
+  and `adb shell am startservice -n im.freeflow.app/.HuddleService -a im.freeflow.app.huddle.STOP`.
+- Not in this phase: a ring while the app is closed. The server has no push
+  for huddle invites yet (rings ride the WebSocket for every client); when it
+  does, the `huddle` notification channel and a full-screen intent are the
+  Android half.
+
 Unit tests: `pnpm --filter @flow/android test` (JUnit, JVM only) and the web
 side's `shell.test.ts` / `serverPicker.test.ts` / `deepLink.test.ts` /
-`push.test.ts` / `ws.test.ts`.
+`push.test.ts` / `huddleShell.test.ts` / `ws.test.ts`.
 
 ## CI: `.github/workflows/android.yml`
 

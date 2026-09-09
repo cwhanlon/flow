@@ -3,6 +3,7 @@ package im.freeflow.app;
 import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.media.AudioManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
@@ -70,6 +71,40 @@ public class FlowShellPlugin extends Plugin {
       Intent view = new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
       getContext().startActivity(view);
     }
+    call.resolve();
+  }
+
+  /**
+   * The page's one huddle signal (ANDROID.md phase 4): a call started or
+   * ended. Start = a foreground service with the microphone type (the call
+   * survives backgrounding) plus the speaker route; stop = both undone.
+   */
+  @PluginMethod
+  public void setHuddleActive(PluginCall call) {
+    Boolean active = call.getBoolean("active");
+    if (active == null) {
+      call.reject("active is required");
+      return;
+    }
+    if (active) HuddleService.start(getContext(), call.getString("title"));
+    else HuddleService.stop(getContext());
+    call.resolve();
+  }
+
+  /** Speaker vs earpiece for call audio. */
+  @PluginMethod
+  public void setSpeaker(PluginCall call) {
+    Boolean on = call.getBoolean("on");
+    if (on == null) {
+      call.reject("on is required");
+      return;
+    }
+    AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+    if (audio == null) {
+      call.reject("no audio service");
+      return;
+    }
+    audio.setSpeakerphoneOn(on);
     call.resolve();
   }
 
