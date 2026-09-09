@@ -1342,3 +1342,21 @@ one-recipient MCP correction).
   `FLOW_CORS_ORIGINS` allowlist that registers no CORS layer at all when
   unset. The web build is byte-for-byte unaffected; a web-only deployment sees
   no new behaviour.
+
+## 2026-09-08 — Android releases are tag-driven, through Play App Signing
+
+- **Version code lives on the Play track, not in the repo** (#217 extended
+  to Android). `apps/android/tools/release-android.sh` asks Play for the
+  largest version code on any track, adds one, builds with it on the Gradle
+  command line and tags `android-v<code>` after the upload succeeds. The
+  Gradle project carries no version; `apps/android/VERSION` is only the
+  marketing string. Same reasoning as macOS and iOS: a number in the repo
+  records an intention, and the server that owns the number runs ahead.
+- **Play App Signing from the first upload.** The repo's key is an *upload*
+  key; Google holds the app-signing key and re-signs. So the App Links
+  fingerprint (`FLOW_ANDROID_CERT_SHA256`) must list Google's app-signing
+  certificate, not (only) the upload key's — the README says where to read it.
+- **Internal testing track first, release by hand.** No workflow releases on
+  push; `android-release.yml` is a manual dispatch that runs the same script.
+- **Online-only is a ruled divergence** (CHANGELOG Parity): no offline cache
+  on Android while it is the web client in a shell.

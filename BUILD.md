@@ -1,6 +1,6 @@
 # Building and releasing Flow
 
-Flow ships as five separate things on different schedules. This page is the
+Flow ships as six separate things on different schedules. This page is the
 index: what each one is, the single command that builds it, and the single
 command that releases it. Details live in the linked docs — this file stays a
 map, not a duplicate.
@@ -15,12 +15,13 @@ If you only want to run Flow locally, you want
 | Server + web client | `pnpm build` | `git push origin main` | **Yes** — Railway builds every push to `main` |
 | macOS app | `apps/macos/tools/make-app.sh` | `apps/macos/tools/release-macos.sh` | No — run locally, needs signing credentials |
 | iOS app | `xcodegen generate` + Xcode | `apps/ios/tools/release-ios.sh` | No — run locally, needs the signing account |
+| Android app | `pnpm --filter @flow/android apk:debug` | `apps/android/tools/release-android.sh` (or the `android-release` workflow, by hand) | No — needs the upload key and a Play service account |
 | `flow-agent-bridge` (npm) | `pnpm --filter flow-agent-bridge build` | bump `version`, merge to `main` | **Yes** — GitHub Actions publishes |
 | Marketing site (`flowlandingpage/`) | `pnpm build` (in `flowlandingpage/`) | merge to `main` | **Yes** — GitHub Actions deploys to Cloudflare Pages |
 
-Three of these release themselves when you merge, and two do not. **Merging to
-`main` does not ship the macOS or iOS app.** That is the single most common
-thing to get wrong.
+Three of these release themselves when you merge, and three do not. **Merging
+to `main` does not ship the macOS, iOS or Android app.** That is the single
+most common thing to get wrong.
 
 ---
 
@@ -257,8 +258,23 @@ pnpm --filter @flow/android apk:debug
 
 Needs JDK 21 + Android SDK 36 (`ANDROID_HOME`); `pnpm -r build` deliberately
 does not. `.github/workflows/android.yml` builds a debug APK artifact for PRs
-touching `apps/android/**` or `packages/web/**`. No Play listing or release
-script yet — that is phase 6 of the design doc; nothing ships automatically.
+touching `apps/android/**` or `packages/web/**`.
+
+Releasing is one command, from `main`:
+
+```sh
+apps/android/tools/release-android.sh            # → Play internal testing track
+apps/android/tools/release-android.sh --track production
+```
+
+It asks Play for the largest version code on any track, adds one, builds a
+signed bundle with that number, uploads it, and tags `android-v<code>` only
+once the upload succeeds — nothing in the repo changes, same as iOS and macOS.
+`apps/android/VERSION` is the marketing version only. The `android-release`
+workflow runs the same script from a manual dispatch with the upload keystore
+and Play service account as secrets. Credentials, Play Console setup and the
+signing-certificate consequences for App Links: `apps/android/README.md`,
+"Release".
 
 ---
 

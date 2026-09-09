@@ -1,0 +1,98 @@
+# Release the Android app to a Google Play track (docs/design/ANDROID.md
+# phase 6). Manual only — releasing is a separate act from merging (BUILD.md):
+# nothing here runs on push.
+#
+# It is apps/android/tools/release-android.sh, unattended: the version code is
+# one more than the largest on any live track, the bundle is built with it,
+# uploaded, and the commit tagged `android-v<code>` only after the upload
+# succeeds. Same rules as running the script by hand.
+#
+# Secrets (repository → Settings → Secrets → Actions):
+#   ANDROID_UPLOAD_KEYSTORE_B64   the upload keystore, base64 (`base64 -w0 upload.keystore`)
+#   ANDROID_UPLOAD_KEYSTORE_PASSWORD, ANDROID_UPLOAD_KEY_ALIAS, ANDROID_UPLOAD_KEY_PASSWORD
+#   PLAY_SERVICE_ACCOUNT_JSON     the service account key (the JSON file's text)
+# Variables: ANDROID_API_BASE (server the build talks to), ANDROID_RUNNER
+# (runner label), ANDROID_RELEASE_ANY_BRANCH=1 lets a fork release from a
+# non-main branch (upstream's state: main only).
+name: android-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Play track
+        type: choice
+        default: internal
+        options: [internal, alpha, beta, production]
+      draft:
+        description: Upload as a draft release (not rolled out)
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # the android-v<code> tag
+
+jobs:
+  release:
+    runs-on: ${{ vars.ANDROID_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    env:
+      FLOW_ANDROID_API_BASE: ${{ vars.ANDROID_API_BASE || 'https://app.freeflow.im' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags and the log since the last one
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests (shell + release tooling)
+        run: |
+          pnpm --filter @flow/android test
+          pnpm --filter @flow/android test:tools
+
+      - name: Materialise credentials
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] || { echo "ANDROID_UPLOAD_KEYSTORE_B64 is not set"; exit 1; }
+          [ -n "$SERVICE_ACCOUNT" ] || { echo "PLAY_SERVICE_ACCOUNT_JSON is not set"; exit 1; }
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/play-service-account.json"
+          chmod 600 "$RUNNER_TEMP/upload.keystore" "$RUNNER_TEMP/play-service-account.json"
+
+      - name: Release
+        env:
+          FLOW_ANDROID_KEYSTORE: ${{ runner.temp }}/upload.keystore
+          FLOW_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          FLOW_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          FLOW_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          FLOW_PLAY_SERVICE_ACCOUNT: ${{ runner.temp }}/play-service-account.json
+          ANY_BRANCH: ${{ vars.ANDROID_RELEASE_ANY_BRANCH || '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          flags="--yes --track ${{ inputs.track }}"
+          [ "${{ inputs.draft }}" = "true" ] && flags="$flags --draft"
+          [ "$ANY_BRANCH" = "1" ] && flags="$flags --allow-dirty"
+          apps/android/tools/release-android.sh $flags
+
+      - name: Scrub credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore" "$RUNNER_TEMP/play-service-account.json"

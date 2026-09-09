@@ -8,6 +8,12 @@ def flowVersionName = project.hasProperty('flowVersionName') ? project.flowVersi
 // Host whose /join/… and /invite/… pages open in the app (verified App Links):
 // the server this build targets. CI passes the host of ANDROID_API_BASE.
 def flowAppLinkHost = project.hasProperty('flowAppLinkHost') ? project.flowAppLinkHost : 'app.freeflow.im'
+// Release signing (ANDROID.md phase 6): the *upload* key, from the environment
+// only — never a file in the repo. Play App Signing holds the app's real key
+// and re-signs what we upload. Unset = no release signing config, and
+// `bundleRelease` produces an unsigned bundle Play would refuse; the release
+// script checks the variables before spending build time.
+def flowKeystore = System.getenv('FLOW_ANDROID_KEYSTORE')
 
 android {
     namespace = "im.freeflow.app"
@@ -38,11 +44,20 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (flowKeystore) {
+            release {
+                storeFile file(flowKeystore)
+                storePassword System.getenv('FLOW_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('FLOW_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('FLOW_ANDROID_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (flowKeystore) signingConfig signingConfigs.release
         }
     }
 }
