@@ -1,5 +1,15 @@
 # Decision log
 
+## 2026-09-14 — Web composer dictation uses the browser recognizer (#594, from #593)
+
+- The web composer uses the browser's built-in SpeechRecognition API: no Flow
+  speech endpoint, API key, paid SDK, stored audio, or automatic send. The UI
+  says the browser vendor may process audio remotely rather than claiming
+  on-device.
+- One recognizer per browser document. A session locks the draft and commits
+  only finalized phrases at the saved selection. Owner change (server,
+  workspace, channel, thread, edit target), pagehide, hidden tab, Escape and
+  unmount all cancel, so late results cannot reach another draft.
 ## 2026-09-20 — Desktop client is an Electron shell around the web client
 
 - Electron, not Tauri: one Chromium on every OS, so the desktop client
