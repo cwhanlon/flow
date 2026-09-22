@@ -1,9 +1,14 @@
 package im.freeflow.app;
 
+import android.app.DownloadManager;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.webkit.URLUtil;
 import android.webkit.WebView;
+import android.widget.Toast;
 import com.getcapacitor.BridgeActivity;
 
 /**
@@ -21,6 +26,33 @@ public class MainActivity extends BridgeActivity {
     // loaded, and a plugin registered later is invisible to it.
     registerPlugin(FlowShellPlugin.class);
     super.onCreate(savedInstanceState);
+    installDownloads();
+  }
+
+  /**
+   * Downloads of http(s) URLs land in the system Downloads folder with a
+   * notification, via DownloadManager — presigned file links the server
+   * hands out, which need no auth header. Everything the web client fetches
+   * with its own auth reaches the WebView as a blob: URL, which
+   * DownloadManager cannot take; those go through FlowShellPlugin.saveFile
+   * instead, called by the page (packages/web/src/lib/download.ts).
+   */
+  private void installDownloads() {
+    WebView webView = getBridge() == null ? null : getBridge().getWebView();
+    if (webView == null) return;
+    webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+      if (!DownloadPolicy.isDownloadable(url)) return;
+      String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+      DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+      request.setMimeType(mimeType);
+      request.setTitle(fileName);
+      request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+      DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+      if (dm == null) return;
+      dm.enqueue(request);
+      Toast.makeText(this, "Downloading " + fileName, Toast.LENGTH_SHORT).show();
+    });
   }
 
   /**

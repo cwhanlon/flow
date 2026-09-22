@@ -1,4 +1,5 @@
 import { isSpreadsheetFile, SPREADSHEET_MAX_BYTES } from '../lib/spreadsheet';
+import { downloadObjectUrl } from '../lib/download';
 import { SpreadsheetView, useWorkbook } from './SpreadsheetPreview';
 import { useBoundApi } from '../lib/useBoundApi';
 // Channel Files panel (#347): every file shared in a channel, as one vertical
@@ -188,11 +189,7 @@ export function FilesList({
 function useDownload(file: ChannelFileDTO): () => Promise<void> {
   const { blobUrl } = useBoundApi();
   return async () => {
-    const url = await blobUrl(`/v1/files/${file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
+    await downloadObjectUrl(await blobUrl(`/v1/files/${file.id}`), file.name, file.mimeType);
   };
 }
 

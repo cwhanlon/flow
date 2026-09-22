@@ -37,6 +37,18 @@ the share target and the Play release come as their own changes.
   macOS. `LinkPolicy.java` keeps both directions to the app's own scheme and
   http(s)/mailto, the desktop's `argv.ts` rules.
 
+## Downloads
+
+The web client fetches files with its own auth, so a download reaches the
+WebView as a `blob:` URL — which the WebView cannot download by itself. The
+host seam's optional `downloads.saveBytes` (`hostAndroid.ts` →
+`FlowShell.saveFile`) takes the bytes and writes them into the device's
+Downloads through MediaStore, under a name made safe (`DownloadNames`); the
+web's `downloadObjectUrl` uses it when present and the `<a download>` anchor
+otherwise, so a browser and the desktop are unchanged. Plain http(s)
+downloads from the WebView (presigned storage links) go to Android's
+DownloadManager with a notification (`DownloadPolicy`).
+
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36, build-tools
@@ -75,7 +87,7 @@ page at `chrome://inspect` when built with `FLOW_ANDROID_DEV=1`.
 ## Tests
 
 ```sh
-pnpm --filter @flow/android test:android         # JUnit: boot script, link policy (pure JVM; needs a cap sync first)
+pnpm --filter @flow/android test:android         # JUnit: boot script, link and download policy, file names (pure JVM; needs a cap sync first)
 pnpm --filter @flow/web test -- hostAndroid       # the bridge adapter
 ```
 

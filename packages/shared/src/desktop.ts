@@ -117,6 +117,14 @@ export interface DesktopBadge {
   set(count: number): void;
 }
 
+/** Bytes the page holds, handed over as base64 to be written into the OS
+ * Downloads under `name`. A shell whose web view cannot download a blob:
+ * URL by itself (the Android WebView) provides this; a browser and the
+ * desktop download the URL themselves and leave it out. */
+export interface DesktopDownloads {
+  saveBytes?(file: { name: string; mimeType: string; data: string }): Promise<void>;
+}
+
 export interface FlowDesktopBridge {
   readonly info: DesktopInfo;
   readonly secrets: DesktopSecrets;
@@ -125,6 +133,8 @@ export interface FlowDesktopBridge {
   readonly zoom: DesktopZoom;
   readonly notifications: DesktopNotifications;
   readonly badge: DesktopBadge;
+  /** Absent where `<a download>` on a blob: URL already works. */
+  readonly downloads?: DesktopDownloads;
 }
 
 declare global {
