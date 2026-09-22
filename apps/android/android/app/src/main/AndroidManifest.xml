@@ -50,4 +50,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The composer's <input type=file capture> can offer the camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Push (ANDROID.md phase 3): Android 13+ asks before showing notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

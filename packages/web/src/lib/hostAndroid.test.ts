@@ -1,7 +1,7 @@
 // The Android shell's bridge (docs/design/ANDROID.md): boot snapshot plus the
 // FlowShell plugin, folded into the desktop bridge shape.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { androidBridge, type ShellBoot } from './hostAndroid';
+import { androidBridge, routingFromPushData, type ShellBoot } from './hostAndroid';
 import { __setHost, getHost, isDesktop } from './host';
 
 function shell(overrides: Partial<ShellBoot> = {}) {
@@ -70,6 +70,31 @@ describe('androidBridge', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(s.hasListener()).toBe(false);
+  });
+
+  it('turns a notification tap into the bridge click, replaying one that arrived before the listener', async () => {
+    const s = shell();
+    let tap: ((a: { notification?: { data?: unknown } }) => void) | null = null;
+    const win = { ...s.win, Capacitor: { Plugins: { ...s.win.Capacitor.Plugins, PushNotifications: {
+      addListener: async (_e: string, cb: typeof tap) => { tap = cb; return { remove: async () => {} }; },
+    } } } };
+    const b = androidBridge(win)!;
+    await Promise.resolve();
+    const data = { routingId: 'conn-1', workspaceId: 'w', channelId: 'c', messageId: 'm', notificationId: 'n', kind: '1' };
+    tap!({ notification: { data } });
+    tap!({ notification: { data: { workspaceId: 'w' } } }); // incomplete: not a click
+    const seen: unknown[] = [];
+    b.notifications.onClick((r) => seen.push(r));
+    expect(seen).toEqual([{ routingId: 'conn-1', workspaceId: 'w', channelId: 'c', messageId: 'm', threadRootId: null, notificationId: 'n' }]);
+    tap!({ notification: { data: { ...data, threadRootId: 't' } } });
+    expect(seen).toHaveLength(2);
+    expect((seen[1] as { threadRootId: string }).threadRootId).toBe('t');
+  });
+
+  it('reads a route only when it is complete', () => {
+    expect(routingFromPushData(null)).toBeNull();
+    expect(routingFromPushData({ routingId: 'r', workspaceId: 'w', channelId: 'c', messageId: 'm' })).toBeNull();
+    expect(routingFromPushData({ routingId: 'r', workspaceId: 'w', channelId: 'c', messageId: 'm', notificationId: 'n' })?.threadRootId).toBeNull();
   });
 
   it('is what getHost adopts: a desktop-class host on the android platform', () => {

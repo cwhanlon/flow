@@ -20,15 +20,10 @@ export const FCM_ENDPOINT = 'https://fcm.googleapis.com';
  * lists must agree. Channels are what give the user per-kind mute controls in
  * system settings for free (ANDROID.md phase 3).
  */
-export const ANDROID_CHANNELS: Record<number, string> = {
-  0: 'mentions',
-  1: 'dms',
-  2: 'threads',
-  3: 'channels',
-  4: 'reactions',
-  5: 'invites',
-};
-export const DEFAULT_CHANNEL = 'general';
+/** Kind → Android notification channel: the one list in @flow/shared that
+ * the app creates its channels from, so the two sides cannot drift. */
+import { androidChannelForKind } from '@flow/shared';
+export { ANDROID_DEFAULT_CHANNEL as DEFAULT_CHANNEL, androidChannelForKind } from '@flow/shared';
 
 /** The three fields of a Firebase service-account key this driver uses. */
 export interface FcmServiceAccount {
@@ -97,9 +92,7 @@ export function toFcmMessage(
   }
   if (aps.badge !== undefined) data.badge = String(aps.badge);
 
-  const kindRaw = custom.kind;
-  const kind = typeof kindRaw === 'number' ? kindRaw : typeof kindRaw === 'string' ? Number(kindRaw) : NaN;
-  const channel = Number.isInteger(kind) ? (ANDROID_CHANNELS[kind] ?? DEFAULT_CHANNEL) : DEFAULT_CHANNEL;
+  const channel = androidChannelForKind(custom.kind);
 
   const android: FcmMessage['message']['android'] = {
     priority: opts.priority === 5 ? 'NORMAL' : 'HIGH',

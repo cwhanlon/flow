@@ -5,11 +5,11 @@
 // stub fetch that records the request; no Google account, no network.
 import { describe, expect, it } from 'vitest';
 import {
-  ANDROID_CHANNELS,
   DEFAULT_CHANNEL,
   FcmHttpV1PushSender,
   classifyFcmFailure,
   toFcmMessage,
+  androidChannelForKind,
 } from '../src/push/fcmSender.js';
 import type { ApnsHeaders, ApnsPayload, PushDevice } from '../src/push/types.js';
 
@@ -78,7 +78,10 @@ describe('toFcmMessage', () => {
     expect(toFcmMessage(device, { ...alertPayload, kind: 99 }, headers, NOW).message.android.notification?.channel_id).toBe(DEFAULT_CHANNEL);
     const { kind: _k, ...noKind } = alertPayload;
     expect(toFcmMessage(device, noKind, headers, NOW).message.android.notification?.channel_id).toBe(DEFAULT_CHANNEL);
-    expect(Object.keys(ANDROID_CHANNELS).map(Number).sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    // Every kind maps to a distinct channel, none of them the default.
+    const mapped = [0, 1, 2, 3, 4, 5].map(androidChannelForKind);
+    expect(new Set(mapped).size).toBe(6);
+    expect(mapped).not.toContain(DEFAULT_CHANNEL);
   });
 
   it('clamps an already-expired push to a zero ttl and maps collapseId', () => {
