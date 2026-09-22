@@ -71,11 +71,13 @@ export async function enablePush(runtime: PushRuntime, plugin: PushPlugin | null
 
 /** Sign-out: the server forgets this device, then so do we. Must run while
  * the session is still valid. Idempotent; nothing stored means nothing to do. */
-export async function disablePush(runtime: PushRuntime): Promise<void> {
+export async function disablePush(runtime: PushRuntime, timeoutMs = 4000): Promise<void> {
   const token = runtime.read(TOKEN_KEY);
   if (!token) return;
   runtime.write(TOKEN_KEY, null);
-  await runtime
+  const request = runtime
     .api('DELETE', `/v1/me/devices/${encodeURIComponent(token)}?routingId=${encodeURIComponent(runtime.connectionId)}`)
     .catch(() => {});
+  // Sign-out must not wait on a server that never answers.
+  await Promise.race([request, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
 }

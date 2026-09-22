@@ -451,14 +451,20 @@ function SessionApp({ runtime }: { runtime: ConnectionRuntime }) {
   }, [user?.id, runtime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const signOut = useCallback(() => {
-    // The device stops being this user's *before* the session goes: the
-    // unregister needs the token that logout invalidates.
-    const unregistered = getHost().platform === 'android' ? disablePush(runtime) : Promise.resolve();
-    void unregistered.finally(() => backendFor(runtime).signOut().catch(() => {}));
-    connectionManager().signOut(runtime.connectionId);
+    const finish = () => {
+      void backendFor(runtime).signOut().catch(() => {});
+      connectionManager().signOut(runtime.connectionId);
+      window.dispatchEvent(new Event('flow:registry'));
+    };
     qc.clear();
     setUser(null);
-    window.dispatchEvent(new Event('flow:registry'));
+    // In the Android shell the device stops being this user's *before* the
+    // session goes: the unregister needs the token that logout invalidates,
+    // and both need the runtime, which signing out disposes — so the
+    // registry cleanup waits for it (bounded; a dead server must not pin
+    // the sign-in screen behind a request that never returns).
+    if (getHost().platform === 'android') void disablePush(runtime).finally(finish);
+    else finish();
   }, [qc, runtime]);
 
   // Switch the main pane to a view, with all the usual channel-switch
