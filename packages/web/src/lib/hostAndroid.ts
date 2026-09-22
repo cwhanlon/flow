@@ -29,8 +29,32 @@ interface FlowShellPlugin {
   openExternal(o: { url: string }): Promise<void>;
   addListener(event: 'deepLink', cb: (data: { url: string }) => void): Promise<{ remove(): Promise<void> }> | { remove(): Promise<void> };
 }
+/** The one push-plugin event this adapter listens to (pushAndroid.ts owns
+ * registration): a tap on a notification in the tray. */
+interface PushPluginEvents {
+  addListener(
+    event: 'pushNotificationActionPerformed',
+    cb: (action: { notification?: { data?: unknown } }) => void,
+  ): Promise<{ remove(): Promise<void> }> | { remove(): Promise<void> };
+}
 interface CapacitorRuntime {
-  Plugins?: { FlowShell?: FlowShellPlugin };
+  Plugins?: { FlowShell?: FlowShellPlugin; PushNotifications?: Partial<PushPluginEvents> };
+}
+
+/** FCM data is string-only; a tap carries the routing keys the server's
+ * payload builder put there, plus the routing id the device registered with.
+ * Anything short of a complete route is not a click the app can act on. */
+export function routingFromPushData(data: unknown): NotificationRouting | null {
+  if (!data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  const str = (k: string) => (typeof d[k] === 'string' && d[k] ? (d[k] as string) : null);
+  const routingId = str('routingId');
+  const workspaceId = str('workspaceId');
+  const channelId = str('channelId');
+  const messageId = str('messageId');
+  const notificationId = str('notificationId');
+  if (!routingId || !workspaceId || !channelId || !messageId || !notificationId) return null;
+  return { routingId, workspaceId, channelId, messageId, threadRootId: str('threadRootId'), notificationId };
 }
 
 type ShellWindow = {
@@ -86,12 +110,29 @@ export function androidBridge(win: ShellWindow | undefined = typeof window === '
   };
 
   // -- notifications and badge: the OS shows pushes itself (ANDROID.md phase
-  // 3), so in-app banners are not the shell's to draw; a tap on one arrives
-  // through the push plugin, not here. No launcher badge API in a WebView.
+  // 3), so in-app banners are not the shell's to draw. A tap on one is the
+  // bridge's click, as on desktop: the push plugin reports it (retained by
+  // Capacitor across a cold start), and a click that arrives before the app
+  // registers its listener is kept and replayed, like a deep link. No
+  // launcher badge API in a WebView.
   const clickListeners = new Set<(routing: NotificationRouting) => void>();
+  const queuedClicks: NotificationRouting[] = [];
+  const push = win?.Capacitor?.Plugins?.PushNotifications;
+  if (push && typeof push.addListener === 'function') {
+    void Promise.resolve(push.addListener('pushNotificationActionPerformed', ({ notification }) => {
+      const routing = routingFromPushData(notification?.data);
+      if (!routing) return;
+      if (clickListeners.size === 0) { queuedClicks.push(routing); return; }
+      for (const listener of Array.from(clickListeners)) listener(routing);
+    })).catch(() => {});
+  }
   const notifications: FlowDesktopBridge['notifications'] = {
     show: () => {},
-    onClick: (listener) => { clickListeners.add(listener); return () => { clickListeners.delete(listener); }; },
+    onClick: (listener) => {
+      clickListeners.add(listener);
+      for (const routing of queuedClicks.splice(0)) listener(routing);
+      return () => { clickListeners.delete(listener); };
+    },
     clearDelivered: () => {},
   };
 

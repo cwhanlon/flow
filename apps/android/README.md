@@ -37,6 +37,24 @@ the share target and the Play release come as their own changes.
   macOS. `LinkPolicy.java` keeps both directions to the app's own scheme and
   http(s)/mailto, the desktop's `argv.ts` rules.
 
+## Push notifications
+
+Capacitor's PushNotifications plugin (FCM) with the committed
+`android/app/google-services.json` for the `freeflow-android` Firebase
+project — a client config, public by design; the server's half is the
+service-account key behind `FLOW_FCM_SERVICE_ACCOUNT` (`docs/ops/DEPLOYMENT.md`).
+At sign-in the web client (`packages/web/src/lib/pushAndroid.ts`) creates the
+per-kind notification channels from the one list in `@flow/shared`, asks for
+permission, and registers the FCM token with the connection (routing id = the
+connection, as macOS does); sign-out unregisters it first. The OS shows the
+tray notification; a tap reaches the app as the host seam's
+`notifications.onClick`, the same path a desktop banner click takes
+(`hostAndroid.ts`). Per-kind muting is the phone's own notification settings.
+
+Not yet: a monochrome small icon for the status bar (Android tints the
+launcher icon into a grey square), and the app badge — a WebView has no
+launcher-badge API.
+
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36, build-tools
