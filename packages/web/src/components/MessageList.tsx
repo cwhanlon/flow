@@ -1,4 +1,5 @@
 import { useBoundApi } from '../lib/useBoundApi';
+import { downloadObjectUrl } from '../lib/download';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ArtifactDTO, FileDTO, MessageDTO, WorkspaceMemberDTO } from '@flow/shared';
@@ -892,11 +893,7 @@ function useCollapsed(fileId: string): [boolean, () => void] {
 function useDownload(file: FileDTO): () => Promise<void> {
   const { blobUrl } = useBoundApi();
   return async () => {
-    const url = await blobUrl(`/v1/files/${file.id}`);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
+    await downloadObjectUrl(await blobUrl(`/v1/files/${file.id}`), file.name, file.mimeType);
   };
 }
 

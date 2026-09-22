@@ -14,6 +14,7 @@
 // is pointless inside the desktop app), not for capability checks.
 import type {
   DesktopBadge,
+  DesktopDownloads,
   DesktopLinks,
   DesktopNotification,
   DesktopNotifications,
@@ -46,6 +47,9 @@ export interface FlowHost {
   readonly zoom: DesktopZoom;
   readonly notifications: DesktopNotifications;
   readonly badge: DesktopBadge;
+  /** A save for bytes the page holds, where the host's web view cannot
+   * download a blob: URL itself; empty where `<a download>` just works. */
+  readonly downloads: DesktopDownloads;
 }
 
 /** "Looking at it" (docs/design/NOTIFICATIONS.md): the page is visible, and
@@ -135,6 +139,9 @@ function browserWindow(): DesktopWindow {
 
 const browserZoom: DesktopZoom = { get: () => 0, set: () => {} };
 
+/** `<a download>` on a blob: URL works here; nothing to offer. */
+const noDownloads: DesktopDownloads = {};
+
 function browserHost(): FlowHost {
   return {
     isDesktop: false,
@@ -148,6 +155,7 @@ function browserHost(): FlowHost {
     zoom: browserZoom,
     notifications: browserNotifications(),
     badge: browserBadge,
+    downloads: noDownloads,
   };
 }
 
@@ -173,6 +181,7 @@ function desktopHost(bridge: FlowDesktopBridge): FlowHost {
     zoom: bridge.zoom,
     notifications: bridge.notifications,
     badge: bridge.badge,
+    downloads: bridge.downloads ?? noDownloads,
   };
 }
 

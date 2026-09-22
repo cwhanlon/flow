@@ -27,6 +27,8 @@ interface FlowShellPlugin {
   secretSet(o: { key: string; value: string }): Promise<void>;
   secretDelete(o: { key: string }): Promise<void>;
   openExternal(o: { url: string }): Promise<void>;
+  /** Write bytes into the device's Downloads (ANDROID.md phase 1). */
+  saveFile?(o: { name: string; mimeType: string; data: string }): Promise<{ uri?: string }>;
   addListener(event: 'deepLink', cb: (data: { url: string }) => void): Promise<{ remove(): Promise<void> }> | { remove(): Promise<void> };
 }
 interface CapacitorRuntime {
@@ -95,6 +97,13 @@ export function androidBridge(win: ShellWindow | undefined = typeof window === '
     clearDelivered: () => {},
   };
 
+  // -- downloads: the WebView cannot download a blob: URL, so the page hands
+  // the bytes to the shell, which writes them into Downloads.
+  const saveFile = plugin.saveFile;
+  const downloads: FlowDesktopBridge['downloads'] = typeof saveFile === 'function'
+    ? { saveBytes: async (file) => { await saveFile.call(plugin, file); } }
+    : {};
+
   return {
     info: { ...boot.info, platform: 'android' },
     secrets,
@@ -103,5 +112,6 @@ export function androidBridge(win: ShellWindow | undefined = typeof window === '
     zoom: { get: () => 0, set: () => {} },
     notifications,
     badge: { set: () => {} },
+    downloads,
   };
 }

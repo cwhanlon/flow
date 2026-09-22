@@ -11,6 +11,7 @@ function shell(overrides: Partial<ShellBoot> = {}) {
     secretSet: async (o: { key: string; value: string }) => { calls.push(`set ${o.key}=${o.value}`); },
     secretDelete: async (o: { key: string }) => { calls.push(`delete ${o.key}`); },
     openExternal: async (o: { url: string }) => { calls.push(`open ${o.url}`); },
+    saveFile: async (o: { name: string; mimeType: string; data: string }) => { calls.push(`save ${o.name} ${o.mimeType} ${o.data}`); return {}; },
     addListener: async (_e: 'deepLink', cb: (d: { url: string }) => void) => { deepLink = cb; return { remove: async () => { deepLink = null; } }; },
   };
   const boot: ShellBoot = {
@@ -70,6 +71,15 @@ describe('androidBridge', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(s.hasListener()).toBe(false);
+  });
+
+  it('offers a save into Downloads through the plugin, and none without it', async () => {
+    const s = shell();
+    await androidBridge(s.win)!.downloads!.saveBytes!({ name: 'a.pdf', mimeType: 'application/pdf', data: 'aGk=' });
+    expect(s.calls).toEqual(['save a.pdf application/pdf aGk=']);
+    const { saveFile: _omit, ...withoutSave } = s.win.Capacitor.Plugins.FlowShell;
+    const bare = androidBridge({ ...s.win, Capacitor: { Plugins: { FlowShell: withoutSave } } })!;
+    expect(bare.downloads!.saveBytes).toBeUndefined();
   });
 
   it('is what getHost adopts: a desktop-class host on the android platform', () => {
