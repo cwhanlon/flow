@@ -37,6 +37,17 @@ the share target and the Play release come as their own changes.
   macOS. `LinkPolicy.java` keeps both directions to the app's own scheme and
   http(s)/mailto, the desktop's `argv.ts` rules.
 
+## The back button
+
+Android's one input a desktop window lacks. `MainActivity` asks the page
+first (`BackBridge.PROBE_JS` → `window.__flowBack()`) and only sends the app
+to the background when the page answers false — never `finish()`, so the next
+launcher tap lands where the user left off. On the page the host seam's
+`back.onBack` (`hostAndroid.ts` → `lib/hardwareBack.ts`) is a newest-first
+handler stack: an open modal or lightbox closes first, then the thread, the
+side panel, then the drawer opens, then the OS gets the press. The desktop
+preload provides no `back`, so nothing changes there.
+
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36, build-tools
@@ -75,7 +86,7 @@ page at `chrome://inspect` when built with `FLOW_ANDROID_DEV=1`.
 ## Tests
 
 ```sh
-pnpm --filter @flow/android test:android         # JUnit: boot script, link policy (pure JVM; needs a cap sync first)
+pnpm --filter @flow/android test:android         # JUnit: boot script, link policy, back probe (pure JVM; needs a cap sync first)
 pnpm --filter @flow/web test -- hostAndroid       # the bridge adapter
 ```
 

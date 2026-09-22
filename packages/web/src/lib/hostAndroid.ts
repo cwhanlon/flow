@@ -12,6 +12,7 @@
 // `FlowDesktopBridge` shape, so `host.ts` and every call site behind it are
 // unchanged; the web client never depends on Capacitor.
 import type { DesktopInfo, FlowDesktopBridge, NotificationRouting } from '@flow/shared';
+import { installBackBridge, registerBackHandler } from './hardwareBack';
 
 /** What ShellBoot.java leaves on the window. */
 export interface ShellBoot {
@@ -95,6 +96,10 @@ export function androidBridge(win: ShellWindow | undefined = typeof window === '
     clearDelivered: () => {},
   };
 
+  // -- back: the shell asks the page (BackBridge.java → window.__flowBack)
+  // before backgrounding the app; views answer through the handler stack.
+  installBackBridge(win as object);
+
   return {
     info: { ...boot.info, platform: 'android' },
     secrets,
@@ -103,5 +108,6 @@ export function androidBridge(win: ShellWindow | undefined = typeof window === '
     zoom: { get: () => 0, set: () => {} },
     notifications,
     badge: { set: () => {} },
+    back: { onBack: registerBackHandler },
   };
 }

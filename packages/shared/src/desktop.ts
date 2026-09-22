@@ -117,6 +117,14 @@ export interface DesktopBadge {
   set(count: number): void;
 }
 
+/** The hardware back button (docs/design/ANDROID.md phase 1): the one input
+ * a phone has that a desktop window does not. The shell asks the page before
+ * backgrounding the app; a listener answers true when it closed something.
+ * Listeners run newest-first. Only the Android shell provides this. */
+export interface DesktopBack {
+  onBack(listener: () => boolean): () => void;
+}
+
 export interface FlowDesktopBridge {
   readonly info: DesktopInfo;
   readonly secrets: DesktopSecrets;
@@ -125,6 +133,8 @@ export interface FlowDesktopBridge {
   readonly zoom: DesktopZoom;
   readonly notifications: DesktopNotifications;
   readonly badge: DesktopBadge;
+  /** Absent on the desktop, whose windows have no back button. */
+  readonly back?: DesktopBack;
 }
 
 declare global {

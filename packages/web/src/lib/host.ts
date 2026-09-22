@@ -13,6 +13,7 @@
 // (sign-in goes through the system browser, the "open the desktop app" pitch
 // is pointless inside the desktop app), not for capability checks.
 import type {
+  DesktopBack,
   DesktopBadge,
   DesktopLinks,
   DesktopNotification,
@@ -46,6 +47,9 @@ export interface FlowHost {
   readonly zoom: DesktopZoom;
   readonly notifications: DesktopNotifications;
   readonly badge: DesktopBadge;
+  /** The hardware back button; a browser and the desktop report none, so a
+   * listener there is never called. */
+  readonly back: DesktopBack;
 }
 
 /** "Looking at it" (docs/design/NOTIFICATIONS.md): the page is visible, and
@@ -135,6 +139,9 @@ function browserWindow(): DesktopWindow {
 
 const browserZoom: DesktopZoom = { get: () => 0, set: () => {} };
 
+/** No back button here: the listener is kept nowhere and never called. */
+const noBack: DesktopBack = { onBack: () => () => {} };
+
 function browserHost(): FlowHost {
   return {
     isDesktop: false,
@@ -148,6 +155,7 @@ function browserHost(): FlowHost {
     zoom: browserZoom,
     notifications: browserNotifications(),
     badge: browserBadge,
+    back: noBack,
   };
 }
 
@@ -173,6 +181,7 @@ function desktopHost(bridge: FlowDesktopBridge): FlowHost {
     zoom: bridge.zoom,
     notifications: bridge.notifications,
     badge: bridge.badge,
+    back: bridge.back ?? noBack,
   };
 }
 

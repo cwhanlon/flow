@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { androidBridge, type ShellBoot } from './hostAndroid';
 import { __setHost, getHost, isDesktop } from './host';
+import { resetBackHandlersForTests } from './hardwareBack';
 
 function shell(overrides: Partial<ShellBoot> = {}) {
   const calls: string[] = [];
@@ -24,7 +25,7 @@ function shell(overrides: Partial<ShellBoot> = {}) {
   return { win, calls, fire: (url: string) => deepLink?.({ url }), hasListener: () => deepLink !== null };
 }
 
-beforeEach(() => __setHost(null));
+beforeEach(() => { __setHost(null); resetBackHandlersForTests(); });
 afterEach(() => { vi.unstubAllGlobals(); __setHost(null); });
 
 describe('androidBridge', () => {
@@ -70,6 +71,17 @@ describe('androidBridge', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(s.hasListener()).toBe(false);
+  });
+
+  it('installs the back probe the shell evaluates, answered by the newest listener', () => {
+    const s = shell();
+    const win = s.win as typeof s.win & { __flowBack?: () => boolean };
+    const b = androidBridge(win)!;
+    expect(win.__flowBack!()).toBe(false);
+    const off = b.back!.onBack(() => true);
+    expect(win.__flowBack!()).toBe(true);
+    off();
+    expect(win.__flowBack!()).toBe(false);
   });
 
   it('is what getHost adopts: a desktop-class host on the android platform', () => {
