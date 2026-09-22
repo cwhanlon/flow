@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 
 /**
@@ -21,6 +22,31 @@ public class MainActivity extends BridgeActivity {
     // loaded, and a plugin registered later is invisible to it.
     registerPlugin(FlowShellPlugin.class);
     super.onCreate(savedInstanceState);
+    installBackHandling();
+  }
+
+  /**
+   * Hardware back: ask the page first (window.__flowBack — an overlay, the
+   * thread, the side panel, the drawer), and only when it has nothing to
+   * close send the app to the background, the way every chat app does. Never
+   * finish(): the next tap on the launcher should land where the user left
+   * off, socket and all. Registered after super.onCreate so it sits above
+   * Capacitor's own callback in the dispatcher and takes precedence.
+   */
+  private void installBackHandling() {
+    getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+      @Override
+      public void handleOnBackPressed() {
+        WebView webView = getBridge() == null ? null : getBridge().getWebView();
+        if (webView == null) {
+          moveTaskToBack(true);
+          return;
+        }
+        webView.evaluateJavascript(BackBridge.PROBE_JS, result -> {
+          if (!BackBridge.pageConsumed(result)) moveTaskToBack(true);
+        });
+      }
+    });
   }
 
   /**
