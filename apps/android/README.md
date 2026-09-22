@@ -40,8 +40,9 @@ the share target and the Play release come as their own changes.
 ## Build
 
 Needs JDK 21 and the Android SDK (`ANDROID_HOME`, platform 36, build-tools
-36); `pnpm -r build` deliberately does not, which is why this package has no
-`build` script.
+36); `pnpm -r build` and the root `pnpm test` deliberately do not, which is
+why this package has no `build` or `test` script — the JUnit tests are
+`test:android`, and `android.yml` is where they run.
 
 ```sh
 pnpm install
@@ -74,7 +75,7 @@ page at `chrome://inspect` when built with `FLOW_ANDROID_DEV=1`.
 ## Tests
 
 ```sh
-pnpm --filter @flow/android test                 # JUnit: boot script, link policy (pure JVM)
+pnpm --filter @flow/android test:android         # JUnit: boot script, link policy (pure JVM; needs a cap sync first)
 pnpm --filter @flow/web test -- hostAndroid       # the bridge adapter
 ```
 
